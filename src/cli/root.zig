@@ -130,7 +130,30 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 7. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 7. Local Listening Services dispatch
+    const is_listeners_cmd = (parsed.command == .listeners) or
+        (parsed.command == .diagnose and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "listeners")) or
+        (parsed.command == .audit and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "local"));
+
+    if (is_listeners_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var listener_res = wirescope.platform.inspectListeners(allocator) catch |err| {
+            stderr.print("Error: Failed to inspect listening services: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer listener_res.deinit(allocator);
+
+        switch (parsed.format) {
+            .json => listener_res.toJson(stdout) catch return ExitCodes.operational_failure,
+            .terminal, .markdown => listener_res.toTerminal(stdout) catch return ExitCodes.operational_failure,
+        }
+        return ExitCodes.success;
+    }
+
+    // 8. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -210,6 +233,20 @@ test "execute routes command" {
     const code = execute(&route_args, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.success, code);
     try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"default_gateway\":"));
+    try testing.expectEqual(@as(usize, 0), err_fbs.getWritten().len);
+}
+
+test "execute listeners command" {
+    var out_buf: [32768]u8 = undefined;
+    var err_buf: [1024]u8 = undefined;
+
+    var out_fbs = std.io.fixedBufferStream(&out_buf);
+    var err_fbs = std.io.fixedBufferStream(&err_buf);
+
+    const listener_args = [_][]const u8{ "wirescope", "listeners", "--format", "json" };
+    const code = execute(&listener_args, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code);
+    try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"permission_limited\":"));
     try testing.expectEqual(@as(usize, 0), err_fbs.getWritten().len);
 }
 

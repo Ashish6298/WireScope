@@ -9,6 +9,11 @@ const routes_mod = @import("routes.zig");
 pub const RouteEntry = routes_mod.RouteEntry;
 pub const RouteInspectionResult = routes_mod.RouteInspectionResult;
 
+const listeners_mod = @import("listeners.zig");
+pub const BindingType = listeners_mod.BindingType;
+pub const ListenerEntry = listeners_mod.ListenerEntry;
+pub const ListenerInspectionResult = listeners_mod.ListenerInspectionResult;
+
 pub fn enumerateInterfacesLinux(allocator: std.mem.Allocator) !InterfaceEnumerationResult {
     var dir = std.fs.openDirAbsolute("/sys/class/net", .{ .iterate = true }) catch {
         // Fallback or permission limitation
@@ -150,6 +155,77 @@ pub fn inspectRoutesLinux(allocator: std.mem.Allocator) !RouteInspectionResult {
     return RouteInspectionResult{
         .routes = try list.toOwnedSlice(),
         .default_gateway = default_gw,
+    };
+}
+
+pub fn inspectListenersLinux(allocator: std.mem.Allocator) !ListenerInspectionResult {
+    var file = std.fs.openFileAbsolute("/proc/net/tcp", .{}) catch {
+        var list = std.ArrayList(ListenerEntry).init(allocator);
+        return ListenerInspectionResult{ .listeners = try list.toOwnedSlice() };
+    };
+    defer file.close();
+
+    var buf: [16384]u8 = undefined;
+    const len = file.readAll(&buf) catch 0;
+    const content = buf[0..len];
+
+    var list = std.ArrayList(ListenerEntry).init(allocator);
+    errdefer {
+        for (list.items) |*l| l.deinit(allocator);
+        list.deinit();
+    }
+
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    _ = lines.next(); // Skip header line
+
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \r\t");
+        if (trimmed.len == 0) continue;
+
+        var tokens = std.mem.tokenizeAny(u8, trimmed, " \t");
+        _ = tokens.next(); // sl
+        const local_addr_token = tokens.next() orelse continue; // 0100007F:1F90
+        _ = tokens.next(); // rem_address
+        const state_hex = tokens.next() orelse continue; // 0A = TCP_LISTEN
+
+        if (!std.mem.eql(u8, state_hex, "0A")) continue;
+
+        const colon_idx = std.mem.indexOfScalar(u8, local_addr_token, ':') orelse continue;
+        const ip_hex = local_addr_token[0..colon_idx];
+        const port_hex = local_addr_token[colon_idx + 1 ..];
+
+        const ip_val = std.fmt.parseInt(u32, ip_hex, 16) catch continue;
+        const port_val = std.fmt.parseInt(u16, port_hex, 16) catch continue;
+
+        const ip_bytes: [4]u8 = @bitCast(ip_val);
+        const addr_str = try std.fmt.allocPrint(allocator, "{d}.{d}.{d}.{d}", .{
+            ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3],
+        });
+        errdefer allocator.free(addr_str);
+
+        const binding: BindingType = if (std.mem.eql(u8, addr_str, "0.0.0.0"))
+            .wildcard
+        else if (std.mem.eql(u8, addr_str, "127.0.0.1") or std.mem.startsWith(u8, addr_str, "127."))
+            .loopback_only
+        else
+            .specific_interface;
+
+        const proto_str = try allocator.dupe(u8, "tcp");
+        errdefer allocator.free(proto_str);
+
+        try list.append(.{
+            .transport = proto_str,
+            .local_address = addr_str,
+            .local_port = port_val,
+            .binding_type = binding,
+            .pid = null,
+            .process_name = null,
+        });
+    }
+
+    return ListenerInspectionResult{
+        .listeners = try list.toOwnedSlice(),
+        .is_permission_limited = false,
     };
 }
 

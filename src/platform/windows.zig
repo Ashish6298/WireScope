@@ -9,6 +9,11 @@ const routes_mod = @import("routes.zig");
 pub const RouteEntry = routes_mod.RouteEntry;
 pub const RouteInspectionResult = routes_mod.RouteInspectionResult;
 
+const listeners_mod = @import("listeners.zig");
+pub const BindingType = listeners_mod.BindingType;
+pub const ListenerEntry = listeners_mod.ListenerEntry;
+pub const ListenerInspectionResult = listeners_mod.ListenerInspectionResult;
+
 const windows = std.os.windows;
 const ULONG = windows.ULONG;
 const DWORD = windows.DWORD;
@@ -482,5 +487,212 @@ test "windows bounded route subprocess fallback" {
     if (@import("builtin").os.tag != .windows) return;
 
     var result = try inspectRoutesSubprocessFallback(testing.allocator);
+    defer result.deinit(testing.allocator);
+}
+
+pub const TCP_TABLE_OWNER_PID_LISTENER: ULONG = 3;
+
+pub const MIB_TCPROW_OWNER_PID = extern struct {
+    dwState: DWORD,
+    dwLocalAddr: DWORD,
+    dwLocalPort: DWORD,
+    dwRemoteAddr: DWORD,
+    dwRemotePort: DWORD,
+    dwOwningPid: DWORD,
+};
+
+pub const MIB_TCPTABLE_OWNER_PID = extern struct {
+    dwNumEntries: DWORD,
+    table: [1]MIB_TCPROW_OWNER_PID,
+};
+
+pub extern "iphlpapi" fn GetExtendedTcpTable(
+    pTcpTable: ?PVOID,
+    pdwSize: *DWORD,
+    bOrder: windows.BOOL,
+    ulAf: ULONG,
+    TableClass: ULONG,
+    Reserved: ULONG,
+) callconv(WINAPI) DWORD;
+
+pub fn classifyBinding(addr: []const u8) BindingType {
+    if (std.mem.eql(u8, addr, "0.0.0.0") or std.mem.eql(u8, addr, "::") or std.mem.eql(u8, addr, "[::]")) {
+        return .wildcard;
+    } else if (std.mem.eql(u8, addr, "127.0.0.1") or std.mem.startsWith(u8, addr, "127.") or std.mem.eql(u8, addr, "::1") or std.mem.eql(u8, addr, "localhost")) {
+        return .loopback_only;
+    } else {
+        return .specific_interface;
+    }
+}
+
+/// Native Win32 listener inspection using GetExtendedTcpTable
+pub fn inspectListenersWindows(allocator: std.mem.Allocator) !ListenerInspectionResult {
+    var size: DWORD = 0;
+    _ = GetExtendedTcpTable(null, &size, 0, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0);
+
+    if (size == 0) {
+        return inspectListenersSubprocessFallback(allocator);
+    }
+
+    const buffer = try allocator.alloc(u8, size);
+    defer allocator.free(buffer);
+
+    const ret = GetExtendedTcpTable(@ptrCast(buffer.ptr), &size, 0, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0);
+    if (ret != ERROR_SUCCESS) {
+        return inspectListenersSubprocessFallback(allocator);
+    }
+
+    const table: *const MIB_TCPTABLE_OWNER_PID = @ptrCast(@alignCast(buffer.ptr));
+    const count: usize = @intCast(table.dwNumEntries);
+
+    var list = std.ArrayList(ListenerEntry).init(allocator);
+    errdefer {
+        for (list.items) |*l| l.deinit(allocator);
+        list.deinit();
+    }
+
+    const rows_ptr: [*]const MIB_TCPROW_OWNER_PID = @ptrCast(&table.table[0]);
+
+    for (0..count) |idx| {
+        const row = rows_ptr[idx];
+
+        const bytes: [4]u8 = @bitCast(row.dwLocalAddr);
+        const addr_str = try std.fmt.allocPrint(allocator, "{d}.{d}.{d}.{d}", .{
+            bytes[0], bytes[1], bytes[2], bytes[3],
+        });
+        errdefer allocator.free(addr_str);
+
+        const port = std.mem.bigToNative(u16, @truncate(@as(u32, @intCast(row.dwLocalPort))));
+        const binding = classifyBinding(addr_str);
+        const proto_str = try allocator.dupe(u8, "tcp");
+        errdefer allocator.free(proto_str);
+
+        try list.append(.{
+            .transport = proto_str,
+            .local_address = addr_str,
+            .local_port = port,
+            .binding_type = binding,
+            .pid = if (row.dwOwningPid > 0) row.dwOwningPid else null,
+            .process_name = null,
+        });
+    }
+
+    return ListenerInspectionResult{
+        .listeners = try list.toOwnedSlice(),
+        .is_permission_limited = false,
+    };
+}
+
+/// Bounded subprocess fallback running 'netstat.exe -ano -p tcp' with no shell interpolation
+pub fn inspectListenersSubprocessFallback(allocator: std.mem.Allocator) !ListenerInspectionResult {
+    var child = std.process.Child.init(&[_][]const u8{ "netstat.exe", "-ano", "-p", "tcp" }, allocator);
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Ignore;
+
+    try child.spawn();
+
+    const max_bytes: usize = 64 * 1024; // 64 KB safety cap
+    var stdout_buf = std.ArrayList(u8).init(allocator);
+    defer stdout_buf.deinit();
+
+    var reader = child.stdout.?.reader();
+    var buf: [1024]u8 = undefined;
+    var total_read: usize = 0;
+
+    while (true) {
+        const bytes_read = try reader.read(&buf);
+        if (bytes_read == 0) break;
+        total_read += bytes_read;
+        if (total_read > max_bytes) break;
+        try stdout_buf.appendSlice(buf[0..bytes_read]);
+    }
+
+    const term = try child.wait();
+    if (term != .Exited or term.Exited != 0) {
+        return error.ApiFailure;
+    }
+
+    var list = std.ArrayList(ListenerEntry).init(allocator);
+    errdefer {
+        for (list.items) |*l| l.deinit(allocator);
+        list.deinit();
+    }
+
+    var lines = std.mem.splitScalar(u8, stdout_buf.items, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \r\t");
+        if (!std.mem.startsWith(u8, trimmed, "TCP")) continue;
+        if (std.mem.indexOf(u8, trimmed, "LISTENING") == null) continue;
+
+        var tokens = std.mem.tokenizeAny(u8, trimmed, " \t");
+        const proto = tokens.next() orelse continue; // TCP
+        const local_addr_port = tokens.next() orelse continue;
+        _ = tokens.next(); // Foreign Address
+        _ = tokens.next(); // State (LISTENING)
+        const pid_str = tokens.next();
+
+        // Split host:port
+        const colon_idx = std.mem.lastIndexOfScalar(u8, local_addr_port, ':') orelse continue;
+        const host = local_addr_port[0..colon_idx];
+        const port_str = local_addr_port[colon_idx + 1 ..];
+        const port = std.fmt.parseInt(u16, port_str, 10) catch continue;
+
+        var pid_val: ?u32 = null;
+        if (pid_str) |p| {
+            pid_val = std.fmt.parseInt(u32, p, 10) catch null;
+        }
+
+        const addr_dupe = try allocator.dupe(u8, host);
+        errdefer allocator.free(addr_dupe);
+
+        const proto_dupe = try allocator.dupe(u8, proto);
+        errdefer allocator.free(proto_dupe);
+
+        try list.append(.{
+            .transport = proto_dupe,
+            .local_address = addr_dupe,
+            .local_port = port,
+            .binding_type = classifyBinding(host),
+            .pid = pid_val,
+            .process_name = null,
+        });
+    }
+
+    return ListenerInspectionResult{
+        .listeners = try list.toOwnedSlice(),
+        .is_permission_limited = false,
+    };
+}
+
+test "windows controlled local listener test" {
+    if (@import("builtin").os.tag != .windows) return;
+
+    // Start a real controlled TCP listener on loopback
+    const loopback = try std.net.Address.parseIp("127.0.0.1", 0);
+    var server = try loopback.listen(.{ .reuse_address = true });
+    defer server.deinit();
+
+    const actual_port = server.listen_address.getPort();
+
+    var result = try inspectListenersWindows(testing.allocator);
+    defer result.deinit(testing.allocator);
+
+    // Verify our controlled test listener is identified and classified
+    var found = false;
+    for (result.listeners) |l| {
+        if (l.local_port == actual_port) {
+            found = true;
+            try testing.expectEqual(BindingType.loopback_only, l.binding_type);
+            try testing.expectEqualStrings("127.0.0.1", l.local_address);
+            break;
+        }
+    }
+    try testing.expect(found);
+}
+
+test "windows listener fallback execution" {
+    if (@import("builtin").os.tag != .windows) return;
+
+    var result = try inspectListenersSubprocessFallback(testing.allocator);
     defer result.deinit(testing.allocator);
 }

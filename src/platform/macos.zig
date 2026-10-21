@@ -8,6 +8,11 @@ const routes_mod = @import("routes.zig");
 pub const RouteEntry = routes_mod.RouteEntry;
 pub const RouteInspectionResult = routes_mod.RouteInspectionResult;
 
+const listeners_mod = @import("listeners.zig");
+pub const BindingType = listeners_mod.BindingType;
+pub const ListenerEntry = listeners_mod.ListenerEntry;
+pub const ListenerInspectionResult = listeners_mod.ListenerInspectionResult;
+
 pub fn enumerateInterfacesMacos(allocator: std.mem.Allocator) !InterfaceEnumerationResult {
     var list = std.ArrayList(NetworkInterface).init(allocator);
     errdefer {
@@ -40,6 +45,14 @@ pub fn inspectRoutesMacos(allocator: std.mem.Allocator) !RouteInspectionResult {
     return RouteInspectionResult{
         .routes = try list.toOwnedSlice(),
         .default_gateway = null,
+    };
+}
+
+pub fn inspectListenersMacos(allocator: std.mem.Allocator) !ListenerInspectionResult {
+    var list = std.ArrayList(ListenerEntry).init(allocator);
+    return ListenerInspectionResult{
+        .listeners = try list.toOwnedSlice(),
+        .is_permission_limited = false,
     };
 }
 

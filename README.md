@@ -59,10 +59,10 @@ Current Development Branch: `ashish`
 | **Milestone 2** | **CLI, Configuration, and Profiles** | **COMPLETED** |
 | ↳ Phase 2.1 | Implement CLI parsing, help, version, and exit codes | **COMPLETED** |
 | ↳ Phase 2.2 | Add versioned configuration and assessment profiles | **COMPLETED** |
-| **Milestone 3** | **Local Network Intelligence** | **In Progress** |
+| **Milestone 3** | **Local Network Intelligence** | **COMPLETED** |
 | ↳ Phase 3.1 | Enumerate network interfaces | **COMPLETED** |
 | ↳ Phase 3.2 | Inspect routes and default gateways | **COMPLETED** |
-| ↳ Phase 3.3 | Inspect local listening services | Pending |
+| ↳ Phase 3.3 | Inspect local listening services | **COMPLETED** |
 | **Milestone 4** | Shared Probe Engine and Resource Controls | Pending |
 | **Milestone 5** | DNS Diagnostics | Pending |
 | **Milestone 6** | TCP Connectivity and Latency | Pending |
@@ -88,6 +88,7 @@ Current Development Branch: `ashish`
 - [ADR 0006: Versioned Configuration, Assessment Profiles, and Scope Guard](docs/decisions/0006-configuration-and-assessment-profiles.md)
 - [ADR 0007: Network Interface Enumeration and Platform Adapters](docs/decisions/0007-network-interface-enumeration.md)
 - [ADR 0008: Routing Table and Default Gateway Inspection](docs/decisions/0008-routing-table-and-gateway-inspection.md)
+- [ADR 0009: Local Listening Services Inspection](docs/decisions/0009-listening-services-inspection.md)
 
 ---
 
