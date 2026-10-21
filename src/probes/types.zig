@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 const OutcomeCategory = @import("../core/outcome.zig").OutcomeCategory;
+const TimingStages = @import("../core/timing.zig").TimingStages;
 
 pub const HARD_MAX_CONCURRENCY: usize = 64;
 pub const DEFAULT_MAX_CONCURRENCY: usize = 10;
@@ -114,8 +115,10 @@ pub const TaskRecord = struct {
     name: []const u8,
     status: WorkStatus,
     outcome: OutcomeCategory,
-    retries_done: u8,
-    elapsed_ns: u64,
+    is_partial: bool = false,
+    retries_done: u8 = 0,
+    elapsed_ns: u64 = 0,
+    timing_stages: TimingStages = .{},
 };
 
 test "engine config validation" {

@@ -67,6 +67,20 @@ pub const StructuredError = struct {
         if (!self.isError()) return "none";
         return std.fmt.bufPrint(buf, "{s}: {s}", .{ @tagName(self.code), self.message });
     }
+
+    /// Deterministic JSON serialization for structured error details
+    pub fn toJson(self: StructuredError, writer: anytype) !void {
+        try writer.print("{{\"code\":\"{s}\",\"message\":\"{s}\",\"details\":", .{
+            @tagName(self.code),
+            self.message,
+        });
+        if (self.details) |d| {
+            try writer.print("\"{s}\"", .{d});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll("}");
+    }
 };
 
 test "structured error mapping and safety" {
@@ -85,4 +99,40 @@ test "structured error mapping and safety" {
     const no_err = StructuredError.none;
     try testing.expect(!no_err.isError());
     try testing.expectEqual(OutcomeCategory.success, no_err.code.toOutcome());
+}
+
+test "comprehensive error category outcome classifications" {
+    // Network refusal & timeouts
+    try testing.expectEqual(OutcomeCategory.refusal, ErrorCode.connection_refused.toOutcome());
+    try testing.expectEqual(OutcomeCategory.timeout, ErrorCode.connection_timed_out.toOutcome());
+    try testing.expectEqual(OutcomeCategory.no_answer, ErrorCode.unknown_host.toOutcome());
+
+    // Security & policy boundaries
+    try testing.expectEqual(OutcomeCategory.invalid_input, ErrorCode.out_of_scope_target.toOutcome());
+    try testing.expectEqual(OutcomeCategory.invalid_input, ErrorCode.scope_limit_exceeded.toOutcome());
+    try testing.expectEqual(OutcomeCategory.permission_denied, ErrorCode.permission_denied.toOutcome());
+    try testing.expectEqual(OutcomeCategory.unsupported_capability, ErrorCode.unsupported_platform_api.toOutcome());
+    try testing.expectEqual(OutcomeCategory.cancelled, ErrorCode.operation_cancelled.toOutcome());
+
+    // Operational failures
+    try testing.expectEqual(OutcomeCategory.operational_failure, ErrorCode.tls_handshake_failed.toOutcome());
+    try testing.expectEqual(OutcomeCategory.operational_failure, ErrorCode.network_unreachable.toOutcome());
+    try testing.expectEqual(OutcomeCategory.operational_failure, ErrorCode.http_protocol_error.toOutcome());
+    try testing.expectEqual(OutcomeCategory.operational_failure, ErrorCode.storage_corruption.toOutcome());
+    try testing.expectEqual(OutcomeCategory.operational_failure, ErrorCode.internal_error.toOutcome());
+}
+
+test "structured error json serialization" {
+    const err = StructuredError{
+        .code = .tls_hostname_mismatch,
+        .message = "Certificate does not match hostname",
+        .details = "SAN mismatch for example.internal",
+    };
+
+    var buf: [256]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    try err.toJson(fbs.writer());
+
+    const expected = "{\"code\":\"tls_hostname_mismatch\",\"message\":\"Certificate does not match hostname\",\"details\":\"SAN mismatch for example.internal\"}";
+    try testing.expectEqualStrings(expected, fbs.getWritten());
 }

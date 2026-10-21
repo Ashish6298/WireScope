@@ -126,8 +126,10 @@ pub const ProbeEngine = struct {
                                 .name = queued_task.desc.name,
                                 .status = .cancelled,
                                 .outcome = .cancelled,
+                                .is_partial = true,
                                 .retries_done = queued_task.retries_done,
                                 .elapsed_ns = 0,
+                                .timing_stages = .{ .total_elapsed_ns = 0 },
                             }) catch {};
                         }
                         if (self.metrics.queued == 0 and self.metrics.running == 0) {
@@ -149,8 +151,10 @@ pub const ProbeEngine = struct {
                                     .name = queued_task.desc.name,
                                     .status = .timed_out,
                                     .outcome = .timeout,
+                                    .is_partial = true,
                                     .retries_done = queued_task.retries_done,
                                     .elapsed_ns = 0,
+                                    .timing_stages = .{ .total_elapsed_ns = 0 },
                                 }) catch {};
                             }
                             if (self.metrics.queued == 0 and self.metrics.running == 0) {
@@ -275,13 +279,16 @@ pub const ProbeEngine = struct {
                 else => self.metrics.completed += 1,
             }
 
+            const is_partial = (final_status == .cancelled or final_status == .timed_out);
             self.records.append(.{
                 .id = task.desc.id,
                 .name = task.desc.name,
                 .status = final_status,
                 .outcome = outcome,
+                .is_partial = is_partial,
                 .retries_done = task.retries_done,
                 .elapsed_ns = elapsed,
+                .timing_stages = .{ .total_elapsed_ns = elapsed },
             }) catch {};
 
             if (self.metrics.queued == 0 and self.metrics.running == 0) {
@@ -331,8 +338,10 @@ pub const ProbeEngine = struct {
                 .name = queued_task.desc.name,
                 .status = .cancelled,
                 .outcome = .cancelled,
+                .is_partial = true,
                 .retries_done = queued_task.retries_done,
                 .elapsed_ns = 0,
+                .timing_stages = .{ .total_elapsed_ns = 0 },
             }) catch {};
         }
 
