@@ -4,6 +4,7 @@ const core = @import("../core/root.zig");
 
 pub const types = @import("types.zig");
 pub const engine = @import("engine.zig");
+pub const dns = @import("dns.zig");
 
 pub const ProbeEngine = engine.ProbeEngine;
 pub const EngineConfig = types.EngineConfig;
@@ -13,6 +14,14 @@ pub const WorkStatus = types.WorkStatus;
 pub const TaskDescriptor = types.TaskDescriptor;
 pub const TaskRecord = types.TaskRecord;
 pub const TaskFn = types.TaskFn;
+
+pub const DnsRecordType = dns.DnsRecordType;
+pub const DnsFailureCategory = dns.DnsFailureCategory;
+pub const DnsResolutionResult = dns.DnsResolutionResult;
+pub const validateHostname = dns.validateHostname;
+pub const Resolver = dns.Resolver;
+pub const SystemResolver = dns.SystemResolver;
+pub const MockResolver = dns.MockResolver;
 
 pub const ProbeType = enum {
     dns,
@@ -29,6 +38,7 @@ pub const ProbeConfig = struct {
 test "probes root exports engine and types" {
     _ = types;
     _ = engine;
+    _ = dns;
     const config = ProbeConfig{};
     try testing.expectEqual(@as(u32, 5000), config.timeout_ms);
 }

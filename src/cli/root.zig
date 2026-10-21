@@ -153,7 +153,45 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 8. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 8. DNS Resolution dispatch
+    const is_dns_cmd = (parsed.command == .dns) or
+        (parsed.command == .diagnose and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "dns"));
+
+    if (is_dns_cmd) {
+        const target = parsed.target orelse {
+            stderr.print("Error: Target hostname required for DNS diagnosis. Usage: wirescope dns <hostname>\n", .{}) catch {};
+            return ExitCodes.invalid_input;
+        };
+
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        const resolver = wirescope.probes.SystemResolver.resolver();
+        var dns_res = resolver.resolve(allocator, target, .both) catch |err| {
+            stderr.print("Error: DNS resolution execution failed: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer dns_res.deinit(allocator);
+
+        switch (parsed.format) {
+            .json => {
+                var envelope = dns_res.toEnvelope(allocator, "op_dns_cli", null) catch return ExitCodes.operational_failure;
+                defer envelope.deinit(allocator);
+                envelope.toJson(stdout) catch return ExitCodes.operational_failure;
+            },
+            .terminal, .markdown => dns_res.toTerminal(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        if (dns_res.failure_category == .malformed_input) {
+            return ExitCodes.invalid_input;
+        } else if (dns_res.failure_category != .success) {
+            return ExitCodes.findings_or_violations;
+        }
+        return ExitCodes.success;
+    }
+
+    // 9. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -260,5 +298,35 @@ test "execute invalid command returns invalid_input exit code" {
     const bad_args = [_][]const u8{ "wirescope", "invalid-subcmd-1234" };
     const code = execute(&bad_args, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.invalid_input, code);
+    try testing.expect(err_fbs.getWritten().len > 0);
+}
+
+test "execute dns command with valid, invalid, and missing target" {
+    var out_buf: [4096]u8 = undefined;
+    var err_buf: [1024]u8 = undefined;
+
+    // 1. Valid localhost resolution with JSON format
+    var out_fbs = std.io.fixedBufferStream(&out_buf);
+    var err_fbs = std.io.fixedBufferStream(&err_buf);
+    const valid_dns = [_][]const u8{ "wirescope", "dns", "localhost", "--format", "json" };
+    const code1 = execute(&valid_dns, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code1);
+    try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"operation_id\":"));
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"operation_type\":\"dns\"") != null);
+    try testing.expectEqual(@as(usize, 0), err_fbs.getWritten().len);
+
+    // 2. Malformed hostname rejected before network activity
+    out_fbs.reset();
+    err_fbs.reset();
+    const invalid_dns = [_][]const u8{ "wirescope", "dns", "illegal_char..com" };
+    const code2 = execute(&invalid_dns, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code2);
+
+    // 3. Missing target hostname returns invalid_input
+    out_fbs.reset();
+    err_fbs.reset();
+    const missing_target = [_][]const u8{ "wirescope", "dns" };
+    const code3 = execute(&missing_target, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code3);
     try testing.expect(err_fbs.getWritten().len > 0);
 }

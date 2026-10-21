@@ -66,7 +66,9 @@ Current Development Branch: `ashish`
 | **Milestone 4** | **Shared Probe Engine and Resource Controls** | **COMPLETED** |
 | ↳ Phase 4.1 | Build bounded scheduling, deadlines, and cancellation | **COMPLETED** |
 | ↳ Phase 4.2 | Normalize timing, errors, and operation metadata | **COMPLETED** |
-| **Milestone 5** | DNS Diagnostics | Pending |
+| **Milestone 5** | **DNS Diagnostics** | **In Progress** |
+| ↳ Phase 5.1 | Implement DNS resolution and failure classification | **COMPLETED** |
+| ↳ Phase 5.2 | Add DNS troubleshooting and optional resolver comparison | Pending |
 | **Milestone 6** | TCP Connectivity and Latency | Pending |
 | **Milestone 7** | TLS and HTTPS Diagnostics | Pending |
 | **Milestone 8** | Authorized Reconnaissance | Pending |
@@ -93,6 +95,7 @@ Current Development Branch: `ashish`
 - [ADR 0009: Local Listening Services Inspection](docs/decisions/0009-listening-services-inspection.md)
 - [ADR 0010: Shared Probe Engine Scheduling, Deadlines, and Cancellation](docs/decisions/0010-probe-engine-scheduling-deadlines-and-cancellation.md)
 - [ADR 0011: Normalized Timing, Errors, and Operation Metadata](docs/decisions/0011-normalized-timing-errors-and-operation-metadata.md)
+- [ADR 0012: DNS Resolution and Failure Classification](docs/decisions/0012-dns-resolution-and-failure-classification.md)
 
 ---
 

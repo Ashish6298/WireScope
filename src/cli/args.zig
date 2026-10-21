@@ -22,6 +22,7 @@ pub const Command = enum {
     interfaces,
     routes,
     listeners,
+    dns,
     diagnose,
     audit,
     discover,
@@ -39,6 +40,7 @@ pub const Command = enum {
         if (std.mem.eql(u8, str, "interfaces") or std.mem.eql(u8, str, "interface")) return .interfaces;
         if (std.mem.eql(u8, str, "routes") or std.mem.eql(u8, str, "route")) return .routes;
         if (std.mem.eql(u8, str, "listeners") or std.mem.eql(u8, str, "listener") or std.mem.eql(u8, str, "ports")) return .listeners;
+        if (std.mem.eql(u8, str, "dns") or std.mem.eql(u8, str, "resolve")) return .dns;
         if (std.mem.eql(u8, str, "diagnose")) return .diagnose;
         if (std.mem.eql(u8, str, "audit")) return .audit;
         if (std.mem.eql(u8, str, "discover")) return .discover;
@@ -148,6 +150,10 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
                 },
             }
         }
+    }
+
+    if (result.command == .dns and result.target == null) {
+        result.target = result.subcommand;
     }
 
     return result;
