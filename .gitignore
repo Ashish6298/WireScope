@@ -1,0 +1,13 @@
+# Zig build outputs
+zig-cache/
+zig-out/
+.zig-cache/
+
+# Test and temporary artifacts
+*.tmp
+*.log
+scratch/
+
+# Local OS metadata
+Thumbs.db
+.DS_Store
