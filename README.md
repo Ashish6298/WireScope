@@ -56,9 +56,9 @@ Current Development Branch: `ashish`
 | **Milestone 1** | **Project Skeleton and Core Contracts** | **COMPLETED** |
 | ↳ Phase 1.1 | Establish module layout and local build commands | **COMPLETED** |
 | ↳ Phase 1.2 | Define typed results, errors, and ownership rules | **COMPLETED** |
-| **Milestone 2** | **CLI, Configuration, and Profiles** | **In Progress** |
+| **Milestone 2** | **CLI, Configuration, and Profiles** | **COMPLETED** |
 | ↳ Phase 2.1 | Implement CLI parsing, help, version, and exit codes | **COMPLETED** |
-| ↳ Phase 2.2 | Add versioned configuration and assessment profiles | Pending |
+| ↳ Phase 2.2 | Add versioned configuration and assessment profiles | **COMPLETED** |
 | **Milestone 3** | Local Network Intelligence | Pending |
 | **Milestone 4** | Shared Probe Engine and Resource Controls | Pending |
 | **Milestone 5** | DNS Diagnostics | Pending |
@@ -82,6 +82,7 @@ Current Development Branch: `ashish`
 - [ADR 0003: Module Layout and Build System Architecture](docs/decisions/0003-module-layout-and-build-system.md)
 - [ADR 0004: Typed Results, Error Model, and Memory Ownership](docs/decisions/0004-typed-results-and-ownership-model.md)
 - [ADR 0005: CLI Command Parser, Capability Reporting, and Exit Codes](docs/decisions/0005-cli-command-parser-and-exit-codes.md)
+- [ADR 0006: Versioned Configuration, Assessment Profiles, and Scope Guard](docs/decisions/0006-configuration-and-assessment-profiles.md)
 
 ---
 

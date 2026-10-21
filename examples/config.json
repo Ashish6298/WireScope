@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "timeouts": {
+    "default_timeout_ms": 5000,
+    "connect_timeout_ms": 3000,
+    "total_assessment_deadline_s": 300
+  },
+  "concurrency": {
+    "max_parallel_probes": 10,
+    "rate_limit_per_second": 20
+  },
+  "limits": {
+    "max_retries": 1,
+    "max_response_size_bytes": 65536,
+    "max_hosts": 256,
+    "max_ports_per_host": 100,
+    "max_total_operations": 1000
+  },
+  "storage": {
+    "data_dir": "data",
+    "auto_prune_days": 30
+  },
+  "output": {
+    "default_format": "terminal",
+    "redact_sensitive": true
+  }
+}

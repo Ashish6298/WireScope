@@ -60,6 +60,8 @@ pub const ParsedCli = struct {
     format: OutputFormat = .terminal,
     timeout_ms: u32 = 5000,
     output_path: ?[]const u8 = null,
+    config_path: ?[]const u8 = null,
+    profile_path: ?[]const u8 = null,
     non_interactive: bool = false,
     dry_run: bool = false,
     show_help: bool = false,
@@ -106,6 +108,14 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
             i += 1;
             if (i >= args.len) return error.MissingOptionValue;
             result.output_path = args[i];
+        } else if (std.mem.eql(u8, arg, "--config")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            result.config_path = args[i];
+        } else if (std.mem.eql(u8, arg, "--profile") or std.mem.eql(u8, arg, "-p")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            result.profile_path = args[i];
         } else if (std.mem.startsWith(u8, arg, "-")) {
             return error.UnknownOption;
         } else {
@@ -156,13 +166,15 @@ test "parse version flag and command" {
 }
 
 test "parse format and timeout options" {
-    const args = [_][]const u8{ "wirescope", "diagnose", "tcp", "127.0.0.1:80", "--format", "json", "-t", "2500" };
+    const args = [_][]const u8{ "wirescope", "diagnose", "tcp", "127.0.0.1:80", "--format", "json", "-t", "2500", "--config", "cfg.json", "--profile", "prof.json" };
     const parsed = try parse(&args);
     try testing.expectEqual(Command.diagnose, parsed.command);
     try testing.expectEqualStrings("tcp", parsed.subcommand.?);
     try testing.expectEqualStrings("127.0.0.1:80", parsed.target.?);
     try testing.expectEqual(OutputFormat.json, parsed.format);
     try testing.expectEqual(@as(u32, 2500), parsed.timeout_ms);
+    try testing.expectEqualStrings("cfg.json", parsed.config_path.?);
+    try testing.expectEqualStrings("prof.json", parsed.profile_path.?);
 }
 
 test "parse rejects invalid timeout and format" {

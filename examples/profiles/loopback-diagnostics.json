@@ -1,0 +1,29 @@
+{
+  "profile_version": 1,
+  "id": "loopback-diagnostics",
+  "name": "Loopback Connectivity Diagnostics",
+  "description": "Safe local loopback diagnostic checks for DNS, TCP, and TLS.",
+  "scope": {
+    "targets": [
+      "127.0.0.1"
+    ],
+    "ports": [
+      80,
+      443,
+      8080
+    ],
+    "exclusions": []
+  },
+  "checks": {
+    "dns": true,
+    "tcp": true,
+    "tls": false,
+    "http": false,
+    "listeners": true
+  },
+  "limits": {
+    "max_concurrency": 2,
+    "timeout_ms": 2000
+  },
+  "authorization_acknowledged": true
+}
