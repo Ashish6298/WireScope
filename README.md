@@ -63,7 +63,9 @@ Current Development Branch: `ashish`
 | ↳ Phase 3.1 | Enumerate network interfaces | **COMPLETED** |
 | ↳ Phase 3.2 | Inspect routes and default gateways | **COMPLETED** |
 | ↳ Phase 3.3 | Inspect local listening services | **COMPLETED** |
-| **Milestone 4** | Shared Probe Engine and Resource Controls | Pending |
+| **Milestone 4** | **Shared Probe Engine and Resource Controls** | **In Progress** |
+| ↳ Phase 4.1 | Build bounded scheduling, deadlines, and cancellation | **COMPLETED** |
+| ↳ Phase 4.2 | Normalize timing, errors, and operation metadata | Pending |
 | **Milestone 5** | DNS Diagnostics | Pending |
 | **Milestone 6** | TCP Connectivity and Latency | Pending |
 | **Milestone 7** | TLS and HTTPS Diagnostics | Pending |
@@ -89,6 +91,7 @@ Current Development Branch: `ashish`
 - [ADR 0007: Network Interface Enumeration and Platform Adapters](docs/decisions/0007-network-interface-enumeration.md)
 - [ADR 0008: Routing Table and Default Gateway Inspection](docs/decisions/0008-routing-table-and-gateway-inspection.md)
 - [ADR 0009: Local Listening Services Inspection](docs/decisions/0009-listening-services-inspection.md)
+- [ADR 0010: Shared Probe Engine Scheduling, Deadlines, and Cancellation](docs/decisions/0010-probe-engine-scheduling-deadlines-and-cancellation.md)
 
 ---
 
