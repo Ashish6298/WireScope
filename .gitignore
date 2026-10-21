@@ -7,6 +7,10 @@ report/
 zig-cache/
 zig-out/
 .zig-cache/
+*.exe
+*.o
+*.obj
+*.pdb
 
 # Local diagnostic history, data storage, and baselines
 data/
