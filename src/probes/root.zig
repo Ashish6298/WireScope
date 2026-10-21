@@ -18,9 +18,14 @@ pub const TaskFn = types.TaskFn;
 pub const DnsRecordType = dns.DnsRecordType;
 pub const DnsFailureCategory = dns.DnsFailureCategory;
 pub const DnsResolutionResult = dns.DnsResolutionResult;
+pub const DnsTroubleshooting = dns.DnsTroubleshooting;
+pub const ResolverComparisonEntry = dns.ResolverComparisonEntry;
+pub const ResolverComparisonResult = dns.ResolverComparisonResult;
+pub const compareResolvers = dns.compareResolvers;
 pub const validateHostname = dns.validateHostname;
 pub const Resolver = dns.Resolver;
 pub const SystemResolver = dns.SystemResolver;
+pub const CustomUdpResolver = dns.CustomUdpResolver;
 pub const MockResolver = dns.MockResolver;
 
 pub const ProbeType = enum {

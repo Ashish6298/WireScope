@@ -167,6 +167,63 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         defer _ = gpa.deinit();
         const allocator = gpa.allocator();
 
+        // 8a. Optional multi-resolver comparison mode
+        if (parsed.resolvers) |res_list_str| {
+            var resolver_list = std.ArrayList(wirescope.probes.Resolver).init(allocator);
+            defer resolver_list.deinit();
+            var label_list = std.ArrayList([]const u8).init(allocator);
+            defer label_list.deinit();
+
+            var udp_resolvers = std.ArrayList(wirescope.probes.CustomUdpResolver).init(allocator);
+            defer udp_resolvers.deinit();
+
+            var iter = std.mem.splitScalar(u8, res_list_str, ',');
+            while (iter.next()) |raw_tok| {
+                const tok = std.mem.trim(u8, raw_tok, " ");
+                if (tok.len == 0) continue;
+
+                if (std.mem.eql(u8, tok, "system") or std.mem.eql(u8, tok, "local")) {
+                    resolver_list.append(wirescope.probes.SystemResolver.resolver()) catch return ExitCodes.operational_failure;
+                    label_list.append("System Resolver") catch return ExitCodes.operational_failure;
+                } else {
+                    udp_resolvers.append(wirescope.probes.CustomUdpResolver{
+                        .resolver_ip = tok,
+                        .timeout_ms = parsed.timeout_ms,
+                    }) catch return ExitCodes.operational_failure;
+                }
+            }
+
+            for (udp_resolvers.items) |*ur| {
+                resolver_list.append(ur.resolver()) catch return ExitCodes.operational_failure;
+                label_list.append(ur.resolver_ip) catch return ExitCodes.operational_failure;
+            }
+
+            if (resolver_list.items.len == 0) {
+                stderr.print("Error: No valid resolvers specified in --compare.\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            }
+
+            var comp_res = wirescope.probes.compareResolvers(
+                allocator,
+                target,
+                .both,
+                resolver_list.items,
+                label_list.items,
+            ) catch |err| {
+                stderr.print("Error: Resolver comparison execution failed: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer comp_res.deinit(allocator);
+
+            switch (parsed.format) {
+                .json => comp_res.toJson(stdout) catch return ExitCodes.operational_failure,
+                .terminal, .markdown => comp_res.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            }
+
+            return ExitCodes.success;
+        }
+
+        // 8b. Single resolver execution (System default)
         const resolver = wirescope.probes.SystemResolver.resolver();
         var dns_res = resolver.resolve(allocator, target, .both) catch |err| {
             stderr.print("Error: DNS resolution execution failed: {s}\n", .{@errorName(err)}) catch {};
@@ -329,4 +386,14 @@ test "execute dns command with valid, invalid, and missing target" {
     const code3 = execute(&missing_target, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.invalid_input, code3);
     try testing.expect(err_fbs.getWritten().len > 0);
+
+    // 4. Resolver comparison option (--compare)
+    out_fbs.reset();
+    err_fbs.reset();
+    const compare_args = [_][]const u8{ "wirescope", "dns", "localhost", "--compare", "system", "--format", "json" };
+    const code4 = execute(&compare_args, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code4);
+    try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"host\":\"localhost\""));
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"answers_match\":true") != null);
+    try testing.expectEqual(@as(usize, 0), err_fbs.getWritten().len);
 }

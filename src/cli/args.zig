@@ -70,6 +70,7 @@ pub const ParsedCli = struct {
     output_path: ?[]const u8 = null,
     config_path: ?[]const u8 = null,
     profile_path: ?[]const u8 = null,
+    resolvers: ?[]const u8 = null,
     non_interactive: bool = false,
     dry_run: bool = false,
     show_help: bool = false,
@@ -124,6 +125,10 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
             i += 1;
             if (i >= args.len) return error.MissingOptionValue;
             result.profile_path = args[i];
+        } else if (std.mem.eql(u8, arg, "--compare") or std.mem.eql(u8, arg, "--resolvers")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            result.resolvers = args[i];
         } else if (std.mem.startsWith(u8, arg, "-")) {
             return error.UnknownOption;
         } else {
@@ -187,6 +192,12 @@ test "parse format and timeout options" {
     try testing.expectEqual(@as(u32, 2500), parsed.timeout_ms);
     try testing.expectEqualStrings("cfg.json", parsed.config_path.?);
     try testing.expectEqualStrings("prof.json", parsed.profile_path.?);
+
+    const compare_args = [_][]const u8{ "wirescope", "dns", "example.com", "--compare", "1.1.1.1,8.8.8.8" };
+    const parsed_compare = try parse(&compare_args);
+    try testing.expectEqual(Command.dns, parsed_compare.command);
+    try testing.expectEqualStrings("example.com", parsed_compare.target.?);
+    try testing.expectEqualStrings("1.1.1.1,8.8.8.8", parsed_compare.resolvers.?);
 }
 
 test "parse rejects invalid timeout and format" {

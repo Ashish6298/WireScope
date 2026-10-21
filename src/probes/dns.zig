@@ -2,6 +2,11 @@ const std = @import("std");
 const testing = std.testing;
 const core = @import("../core/root.zig");
 
+pub const troubleshooting_mod = @import("dns_troubleshooting.zig");
+pub const DnsTroubleshooting = troubleshooting_mod.DnsTroubleshooting;
+pub const generateTroubleshooting = troubleshooting_mod.generateTroubleshooting;
+pub const explainDisagreement = troubleshooting_mod.explainDisagreement;
+
 const OutcomeCategory = core.OutcomeCategory;
 const StructuredError = core.StructuredError;
 const ErrorCode = core.ErrorCode;
@@ -205,9 +210,213 @@ pub const DnsResolutionResult = struct {
         if (self.capability_limitations) |l| {
             try writer.print("\n  Limitations   : {s}\n", .{l});
         }
+
+        const tb = self.getTroubleshooting();
+        try writer.writeAll("\n  Troubleshooting Guidance:\n");
+        try writer.print("    Summary: {s}\n", .{tb.summary});
+        if (tb.possible_causes.len > 0) {
+            try writer.writeAll("    Possible Causes:\n");
+            for (tb.possible_causes) |cause| {
+                try writer.print("      * {s}\n", .{cause});
+            }
+        }
+        if (tb.recommended_actions.len > 0) {
+            try writer.writeAll("    Recommended Actions:\n");
+            for (tb.recommended_actions) |action| {
+                try writer.print("      * {s}\n", .{action});
+            }
+        }
+        if (tb.context_notes) |notes| {
+            try writer.print("    Context: {s}\n", .{notes});
+        }
         try writer.writeAll("\n");
     }
+
+    pub fn getTroubleshooting(self: *const DnsResolutionResult) DnsTroubleshooting {
+        return generateTroubleshooting(self.failure_category.toSlice(), self.answers.len);
+    }
 };
+
+/// Preserved individual result entry from an explicitly queried resolver
+pub const ResolverComparisonEntry = struct {
+    resolver: []const u8,
+    failure_category: DnsFailureCategory,
+    answers: [][]const u8,
+    elapsed_ns: u64,
+    err: StructuredError,
+
+    pub fn deinit(self: *ResolverComparisonEntry, allocator: std.mem.Allocator) void {
+        allocator.free(self.resolver);
+        for (self.answers) |ans| allocator.free(ans);
+        allocator.free(self.answers);
+    }
+};
+
+/// Side-by-side comparison result across multiple explicitly configured resolvers
+pub const ResolverComparisonResult = struct {
+    host: []const u8,
+    record_type: DnsRecordType,
+    entries: []ResolverComparisonEntry,
+    answers_match: bool,
+    disagreement_analysis: ?[]const u8 = null,
+
+    pub fn deinit(self: *ResolverComparisonResult, allocator: std.mem.Allocator) void {
+        allocator.free(self.host);
+        for (self.entries) |*e| e.deinit(allocator);
+        allocator.free(self.entries);
+    }
+
+    pub fn toJson(self: *const ResolverComparisonResult, writer: anytype) !void {
+        try writer.print(
+            \\{{"host":"{s}","record_type":"{s}","answers_match":{s},"disagreement_analysis":
+        , .{
+            self.host,
+            self.record_type.toSlice(),
+            if (self.answers_match) "true" else "false",
+        });
+        if (self.disagreement_analysis) |da| {
+            try writer.print("\"{s}\"", .{da});
+        } else {
+            try writer.writeAll("null");
+        }
+        try writer.writeAll(",\"resolvers\":[");
+        for (self.entries, 0..) |e, i| {
+            if (i > 0) try writer.writeAll(",");
+            try writer.print(
+                \\{{"resolver":"{s}","outcome":"{s}","elapsed_ns":{d},"error":
+            , .{
+                e.resolver,
+                e.failure_category.toSlice(),
+                e.elapsed_ns,
+            });
+            try e.err.toJson(writer);
+            try writer.writeAll(",\"answers\":[");
+            for (e.answers, 0..) |ans, ai| {
+                if (ai > 0) try writer.writeAll(",");
+                try writer.print("\"{s}\"", .{ans});
+            }
+            try writer.writeAll("]}");
+        }
+        try writer.writeAll("]}\n");
+    }
+
+    pub fn toTerminal(self: *const ResolverComparisonResult, writer: anytype) !void {
+        try writer.print("DNS Resolver Comparison for: {s} ({s})\n", .{ self.host, self.record_type.toSlice() });
+        try writer.writeAll("--------------------------------------------------------------------------------\n");
+        try writer.print("  {s:<25} {s:<18} {s:<12} {s}\n", .{ "Resolver", "Outcome", "Latency", "Answers" });
+        try writer.writeAll("  ----------------------------------------------------------------------------\n");
+
+        for (self.entries) |e| {
+            var ans_summary_buf: [128]u8 = undefined;
+            var ans_str: []const u8 = "-";
+            if (e.answers.len > 0) {
+                if (e.answers.len == 1) {
+                    ans_str = e.answers[0];
+                } else {
+                    ans_str = std.fmt.bufPrint(&ans_summary_buf, "{s} (+{d} more)", .{ e.answers[0], e.answers.len - 1 }) catch e.answers[0];
+                }
+            }
+
+            const latency_ms = @as(f64, @floatFromInt(e.elapsed_ns)) / 1000000.0;
+            try writer.print("  {s:<25} {s:<18} {d:>8.2} ms   {s}\n", .{
+                e.resolver,
+                e.failure_category.toSlice(),
+                latency_ms,
+                ans_str,
+            });
+        }
+        try writer.writeAll("\n");
+
+        if (!self.answers_match) {
+            try writer.writeAll("  Observations & Analysis:\n");
+            try writer.print("    [!] Answer Disagreement Observed: {s}\n\n", .{
+                self.disagreement_analysis orelse "Answers differ across queried resolvers.",
+            });
+        } else {
+            try writer.writeAll("  Observations & Analysis:\n");
+            try writer.writeAll("    [=] Answer Consistency: All responding resolvers returned identical answer sets.\n\n");
+        }
+    }
+};
+
+/// Compares resolution outcomes across explicitly configured resolvers
+pub fn compareResolvers(
+    allocator: std.mem.Allocator,
+    host: []const u8,
+    record_type: DnsRecordType,
+    resolvers: []const Resolver,
+    labels: []const []const u8,
+) !ResolverComparisonResult {
+    var entries = try allocator.alloc(ResolverComparisonEntry, resolvers.len);
+    var entries_initialized: usize = 0;
+    errdefer {
+        for (0..entries_initialized) |i| entries[i].deinit(allocator);
+        allocator.free(entries);
+    }
+
+    for (resolvers, 0..) |r, i| {
+        var res = try r.resolve(allocator, host, record_type);
+        defer res.deinit(allocator);
+
+        var answers_copy = try allocator.alloc([]const u8, res.answers.len);
+        var ans_dup_count: usize = 0;
+        errdefer {
+            for (0..ans_dup_count) |j| allocator.free(answers_copy[j]);
+            allocator.free(answers_copy);
+        }
+        for (res.answers, 0..) |ans, j| {
+            answers_copy[j] = try allocator.dupe(u8, ans);
+            ans_dup_count += 1;
+        }
+
+        entries[i] = .{
+            .resolver = try allocator.dupe(u8, labels[i]),
+            .failure_category = res.failure_category,
+            .answers = answers_copy,
+            .elapsed_ns = res.elapsed_ns,
+            .err = res.err,
+        };
+        entries_initialized += 1;
+    }
+
+    // Compare answer sets across successful entries
+    var answers_match = true;
+    var first_successful_idx: ?usize = null;
+
+    for (entries, 0..) |e, i| {
+        if (e.failure_category == .success) {
+            if (first_successful_idx == null) {
+                first_successful_idx = i;
+            } else {
+                const first = entries[first_successful_idx.?];
+                if (first.answers.len != e.answers.len) {
+                    answers_match = false;
+                    break;
+                }
+                for (first.answers, 0..) |ans, a_idx| {
+                    if (!std.mem.eql(u8, ans, e.answers[a_idx])) {
+                        answers_match = false;
+                        break;
+                    }
+                }
+                if (!answers_match) break;
+            }
+        }
+    }
+
+    const analysis: ?[]const u8 = if (!answers_match)
+        explainDisagreement("resolver_a", "resolver_b")
+    else
+        null;
+
+    return ResolverComparisonResult{
+        .host = try allocator.dupe(u8, host),
+        .record_type = record_type,
+        .entries = entries,
+        .answers_match = answers_match,
+        .disagreement_analysis = analysis,
+    };
+}
 
 /// Injectable Resolver interface
 pub const Resolver = struct {
@@ -375,6 +584,292 @@ pub const SystemResolver = struct {
         return .{
             .ptr = undefined,
             .vtable = &system_vtable,
+        };
+    }
+};
+
+/// Direct UDP DNS resolver querying specific nameservers via RFC 1035 wire protocol
+pub const CustomUdpResolver = struct {
+    resolver_ip: []const u8,
+    port: u16 = 53,
+    timeout_ms: u32 = 3000,
+
+    fn resolve(
+        ctx: *anyopaque,
+        allocator: std.mem.Allocator,
+        host: []const u8,
+        record_type: DnsRecordType,
+    ) anyerror!DnsResolutionResult {
+        const self: *CustomUdpResolver = @ptrCast(@alignCast(ctx));
+
+        validateHostname(host) catch |err| {
+            return DnsResolutionResult{
+                .host = try allocator.dupe(u8, host),
+                .record_type = record_type,
+                .failure_category = .malformed_input,
+                .answers = try allocator.alloc([]const u8, 0),
+                .resolver = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ self.resolver_ip, self.port }),
+                .method = try allocator.dupe(u8, "custom_udp_resolver"),
+                .elapsed_ns = 0,
+                .err = .{
+                    .code = .parse_error,
+                    .message = @errorName(err),
+                },
+            };
+        };
+
+        const start_ns = std.time.nanoTimestamp();
+
+        const res_addr = std.net.Address.parseIp(self.resolver_ip, self.port) catch {
+            return DnsResolutionResult{
+                .host = try allocator.dupe(u8, host),
+                .record_type = record_type,
+                .failure_category = .resolver_transport_error,
+                .answers = try allocator.alloc([]const u8, 0),
+                .resolver = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ self.resolver_ip, self.port }),
+                .method = try allocator.dupe(u8, "custom_udp_resolver"),
+                .elapsed_ns = 0,
+                .err = .{
+                    .code = .parse_error,
+                    .message = "Invalid resolver IP address syntax",
+                },
+            };
+        };
+
+        var query_buf: [512]u8 = undefined;
+        var query_fbs = std.io.fixedBufferStream(&query_buf);
+        const q_writer = query_fbs.writer();
+
+        const query_id: u16 = 0x5753; // "WS" WireScope
+        try q_writer.writeInt(u16, query_id, .big);
+        try q_writer.writeInt(u16, 0x0100, .big); // Standard query with recursion desired
+        try q_writer.writeInt(u16, 1, .big); // QDCOUNT: 1
+        try q_writer.writeInt(u16, 0, .big);
+        try q_writer.writeInt(u16, 0, .big);
+        try q_writer.writeInt(u16, 0, .big);
+
+        var iter = std.mem.splitScalar(u8, host, '.');
+        while (iter.next()) |lbl| {
+            if (lbl.len == 0) continue;
+            try q_writer.writeByte(@intCast(lbl.len));
+            try q_writer.writeAll(lbl);
+        }
+        try q_writer.writeByte(0);
+
+        const qtype: u16 = if (record_type == .AAAA) 28 else 1;
+        try q_writer.writeInt(u16, qtype, .big);
+        try q_writer.writeInt(u16, 1, .big);
+
+        const query_payload = query_fbs.getWritten();
+
+        const sock = std.posix.socket(res_addr.any.family, std.posix.SOCK.DGRAM, std.posix.IPPROTO.UDP) catch {
+            const elapsed = @as(u64, @intCast(@max(0, std.time.nanoTimestamp() - start_ns)));
+            return DnsResolutionResult{
+                .host = try allocator.dupe(u8, host),
+                .record_type = record_type,
+                .failure_category = .resolver_transport_error,
+                .answers = try allocator.alloc([]const u8, 0),
+                .resolver = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ self.resolver_ip, self.port }),
+                .method = try allocator.dupe(u8, "custom_udp_resolver"),
+                .elapsed_ns = elapsed,
+                .err = .{ .code = .network_unreachable, .message = "Failed to allocate socket" },
+            };
+        };
+        defer std.posix.close(sock);
+
+        var resp_buf: [1024]u8 = undefined;
+        var recvd: usize = 0;
+        if (comptime @import("builtin").os.tag == .windows) {
+            const SOL_SOCKET_WIN: i32 = 0xffff;
+            const SO_RCVTIMEO_WIN: i32 = 0x1006;
+            const tv_ms: u32 = self.timeout_ms;
+            _ = std.os.windows.ws2_32.setsockopt(sock, SOL_SOCKET_WIN, SO_RCVTIMEO_WIN, @ptrCast(&tv_ms), @sizeOf(u32));
+
+            _ = std.os.windows.ws2_32.sendto(sock, query_payload.ptr, @intCast(query_payload.len), 0, @ptrCast(&res_addr.any), @intCast(res_addr.getOsSockLen()));
+
+            var from_len: i32 = @sizeOf(std.os.windows.ws2_32.sockaddr);
+            const r_ret = std.os.windows.ws2_32.recvfrom(sock, &resp_buf, @intCast(resp_buf.len), 0, null, &from_len);
+            if (r_ret < 0) {
+                const elapsed = @as(u64, @intCast(@max(0, std.time.nanoTimestamp() - start_ns)));
+                return DnsResolutionResult{
+                    .host = try allocator.dupe(u8, host),
+                    .record_type = record_type,
+                    .failure_category = .timeout,
+                    .answers = try allocator.alloc([]const u8, 0),
+                    .resolver = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ self.resolver_ip, self.port }),
+                    .method = try allocator.dupe(u8, "custom_udp_resolver"),
+                    .elapsed_ns = elapsed,
+                    .err = .{
+                        .code = .connection_timed_out,
+                        .message = "Resolver UDP response timed out",
+                    },
+                };
+            }
+            recvd = @intCast(r_ret);
+        } else {
+            const PosixTimeval = extern struct {
+                sec: isize,
+                usec: isize,
+            };
+            const tv = PosixTimeval{
+                .sec = @intCast(self.timeout_ms / 1000),
+                .usec = @intCast((self.timeout_ms % 1000) * 1000),
+            };
+            _ = std.posix.setsockopt(sock, std.posix.SOL.SOCKET, std.posix.SO.RCVTIMEO, std.mem.asBytes(&tv)) catch {};
+
+            _ = std.posix.sendto(sock, query_payload, 0, &res_addr.any, res_addr.getOsSockLen()) catch {
+                const elapsed = @as(u64, @intCast(@max(0, std.time.nanoTimestamp() - start_ns)));
+                return DnsResolutionResult{
+                    .host = try allocator.dupe(u8, host),
+                    .record_type = record_type,
+                    .failure_category = .resolver_transport_error,
+                    .answers = try allocator.alloc([]const u8, 0),
+                    .resolver = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ self.resolver_ip, self.port }),
+                    .method = try allocator.dupe(u8, "custom_udp_resolver"),
+                    .elapsed_ns = elapsed,
+                    .err = .{ .code = .network_unreachable, .message = "Failed to transmit UDP query to resolver" },
+                };
+            };
+
+            var src_addr: std.posix.sockaddr = undefined;
+            var src_addr_len: std.posix.socklen_t = @sizeOf(std.posix.sockaddr);
+            recvd = std.posix.recvfrom(sock, &resp_buf, 0, &src_addr, &src_addr_len) catch |err| {
+                const elapsed = @as(u64, @intCast(@max(0, std.time.nanoTimestamp() - start_ns)));
+                const is_timeout = (err == error.WouldBlock or err == error.TimedOut);
+                return DnsResolutionResult{
+                    .host = try allocator.dupe(u8, host),
+                    .record_type = record_type,
+                    .failure_category = if (is_timeout) .timeout else .resolver_transport_error,
+                    .answers = try allocator.alloc([]const u8, 0),
+                    .resolver = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ self.resolver_ip, self.port }),
+                    .method = try allocator.dupe(u8, "custom_udp_resolver"),
+                    .elapsed_ns = elapsed,
+                    .err = .{
+                        .code = if (is_timeout) .connection_timed_out else .network_unreachable,
+                        .message = if (is_timeout) "Resolver UDP response timed out" else @errorName(err),
+                    },
+                };
+            };
+        }
+
+        const elapsed = @as(u64, @intCast(@max(0, std.time.nanoTimestamp() - start_ns)));
+
+        if (recvd < 12) {
+            return DnsResolutionResult{
+                .host = try allocator.dupe(u8, host),
+                .record_type = record_type,
+                .failure_category = .resolver_transport_error,
+                .answers = try allocator.alloc([]const u8, 0),
+                .resolver = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ self.resolver_ip, self.port }),
+                .method = try allocator.dupe(u8, "custom_udp_resolver"),
+                .elapsed_ns = elapsed,
+                .err = .{ .code = .io_error, .message = "DNS response truncated" },
+            };
+        }
+
+        const flags = std.mem.readInt(u16, resp_buf[2..4], .big);
+        const rcode = flags & 0x000F;
+
+        if (rcode == 3) {
+            return DnsResolutionResult{
+                .host = try allocator.dupe(u8, host),
+                .record_type = record_type,
+                .failure_category = .nxdomain,
+                .answers = try allocator.alloc([]const u8, 0),
+                .resolver = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ self.resolver_ip, self.port }),
+                .method = try allocator.dupe(u8, "custom_udp_resolver"),
+                .elapsed_ns = elapsed,
+                .err = .{ .code = .unknown_host, .message = "NXDOMAIN received from resolver" },
+            };
+        }
+
+        const ancount = std.mem.readInt(u16, resp_buf[6..8], .big);
+        if (ancount == 0) {
+            return DnsResolutionResult{
+                .host = try allocator.dupe(u8, host),
+                .record_type = record_type,
+                .failure_category = .no_answer,
+                .answers = try allocator.alloc([]const u8, 0),
+                .resolver = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ self.resolver_ip, self.port }),
+                .method = try allocator.dupe(u8, "custom_udp_resolver"),
+                .elapsed_ns = elapsed,
+                .err = .{ .code = .unknown_host, .message = "No matching records found in resolver answer" },
+            };
+        }
+
+        var offset: usize = 12;
+        while (offset < recvd) {
+            const len = resp_buf[offset];
+            if (len == 0) {
+                offset += 5;
+                break;
+            } else if ((len & 0xC0) == 0xC0) {
+                offset += 6;
+                break;
+            } else {
+                offset += 1 + len;
+            }
+        }
+
+        var ans_list = std.ArrayList([]const u8).init(allocator);
+        errdefer {
+            for (ans_list.items) |ans| allocator.free(ans);
+            ans_list.deinit();
+        }
+
+        var parsed_answers: usize = 0;
+        while (parsed_answers < ancount and offset + 10 <= recvd) : (parsed_answers += 1) {
+            if ((resp_buf[offset] & 0xC0) == 0xC0) {
+                offset += 2;
+            } else {
+                while (offset < recvd and resp_buf[offset] != 0) {
+                    offset += 1 + resp_buf[offset];
+                }
+                offset += 1;
+            }
+
+            if (offset + 10 > recvd) break;
+            const atype = std.mem.readInt(u16, resp_buf[offset..][0..2], .big);
+            const rdlen = std.mem.readInt(u16, resp_buf[offset + 8 ..][0..2], .big);
+            offset += 10;
+
+            if (atype == 1 and rdlen == 4 and offset + 4 <= recvd) {
+                const ip = try std.fmt.allocPrint(allocator, "{d}.{d}.{d}.{d}", .{
+                    resp_buf[offset], resp_buf[offset + 1], resp_buf[offset + 2], resp_buf[offset + 3],
+                });
+                try ans_list.append(ip);
+            }
+            offset += rdlen;
+        }
+
+        std.mem.sort([]const u8, ans_list.items, {}, struct {
+            fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+                return std.mem.lessThan(u8, a, b);
+            }
+        }.lessThan);
+
+        const cat: DnsFailureCategory = if (ans_list.items.len > 0) .success else .no_answer;
+
+        return DnsResolutionResult{
+            .host = try allocator.dupe(u8, host),
+            .record_type = record_type,
+            .failure_category = cat,
+            .answers = try ans_list.toOwnedSlice(),
+            .resolver = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ self.resolver_ip, self.port }),
+            .method = try allocator.dupe(u8, "custom_udp_resolver"),
+            .elapsed_ns = elapsed,
+            .err = if (cat == .success) StructuredError.none else .{ .code = .unknown_host, .message = "No matching records found" },
+        };
+    }
+
+    const udp_vtable: Resolver.VTable = .{
+        .resolve = resolve,
+    };
+
+    pub fn resolver(self: *CustomUdpResolver) Resolver {
+        return .{
+            .ptr = self,
+            .vtable = &udp_vtable,
         };
     }
 };
@@ -586,4 +1081,94 @@ test "system resolver rejects malformed hostnames before calling network APIs" {
     try testing.expectEqual(ErrorCode.parse_error, result.err.code);
     try testing.expectEqual(@as(usize, 0), result.answers.len);
     try testing.expectEqual(@as(u64, 0), result.elapsed_ns);
+}
+
+test "compare resolvers with identical answers" {
+    const allocator = testing.allocator;
+
+    var mock1 = MockResolver{
+        .mock_category = .success,
+        .mock_answers = &.{ "192.0.2.1", "192.0.2.2" },
+        .resolver_name = "1.1.1.1:53",
+    };
+    var mock2 = MockResolver{
+        .mock_category = .success,
+        .mock_answers = &.{ "192.0.2.2", "192.0.2.1" }, // Order swapped, but sort will match
+        .resolver_name = "8.8.8.8:53",
+    };
+
+    const resolvers = [_]Resolver{ mock1.resolver(), mock2.resolver() };
+    const labels = [_][]const u8{ "Cloudflare (1.1.1.1)", "Google (8.8.8.8)" };
+
+    var comp = try compareResolvers(allocator, "service.example.com", .A, &resolvers, &labels);
+    defer comp.deinit(allocator);
+
+    try testing.expect(comp.answers_match);
+    try testing.expect(comp.disagreement_analysis == null);
+    try testing.expectEqual(@as(usize, 2), comp.entries.len);
+    try testing.expectEqualStrings("Cloudflare (1.1.1.1)", comp.entries[0].resolver);
+    try testing.expectEqualStrings("Google (8.8.8.8)", comp.entries[1].resolver);
+}
+
+test "compare resolvers with split-horizon differing answers" {
+    const allocator = testing.allocator;
+
+    var internal_mock = MockResolver{
+        .mock_category = .success,
+        .mock_answers = &.{"10.0.1.50"}, // RFC 1918 private address
+        .resolver_name = "10.0.0.1:53",
+    };
+    var public_mock = MockResolver{
+        .mock_category = .success,
+        .mock_answers = &.{"198.51.100.25"}, // Public address
+        .resolver_name = "1.1.1.1:53",
+    };
+
+    const resolvers = [_]Resolver{ internal_mock.resolver(), public_mock.resolver() };
+    const labels = [_][]const u8{ "Internal DNS (10.0.0.1)", "Public DNS (1.1.1.1)" };
+
+    var comp = try compareResolvers(allocator, "app.corp.internal", .A, &resolvers, &labels);
+    defer comp.deinit(allocator);
+
+    // Answers differ due to split-horizon
+    try testing.expect(!comp.answers_match);
+    try testing.expect(comp.disagreement_analysis != null);
+
+    // Verify neutral explanation without poisoning accusations
+    const explanation = comp.disagreement_analysis.?;
+    try testing.expect(std.mem.indexOf(u8, explanation, "do NOT indicate DNS poisoning or hijacking") != null);
+    try testing.expect(std.mem.indexOf(u8, explanation, "Split-horizon") != null);
+
+    // Verify JSON serialization contains disagreement analysis and resolvers
+    var json_buf: [2048]u8 = undefined;
+    var json_fbs = std.io.fixedBufferStream(&json_buf);
+    try comp.toJson(json_fbs.writer());
+    const json_str = json_fbs.getWritten();
+    try testing.expect(std.mem.indexOf(u8, json_str, "\"answers_match\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, json_str, "Split-horizon") != null);
+}
+
+test "compare resolvers preserves individual failure and timeout" {
+    const allocator = testing.allocator;
+
+    var healthy_mock = MockResolver{
+        .mock_category = .success,
+        .mock_answers = &.{"192.0.2.1"},
+        .resolver_name = "8.8.8.8:53",
+    };
+    var timeout_mock = MockResolver{
+        .mock_category = .timeout,
+        .resolver_name = "192.0.2.254:53",
+    };
+
+    const resolvers = [_]Resolver{ healthy_mock.resolver(), timeout_mock.resolver() };
+    const labels = [_][]const u8{ "Healthy (8.8.8.8)", "Unresponsive (192.0.2.254)" };
+
+    var comp = try compareResolvers(allocator, "test.example.com", .A, &resolvers, &labels);
+    defer comp.deinit(allocator);
+
+    try testing.expectEqual(@as(usize, 2), comp.entries.len);
+    try testing.expectEqual(DnsFailureCategory.success, comp.entries[0].failure_category);
+    try testing.expectEqual(DnsFailureCategory.timeout, comp.entries[1].failure_category);
+    try testing.expectEqual(ErrorCode.connection_timed_out, comp.entries[1].err.code);
 }
