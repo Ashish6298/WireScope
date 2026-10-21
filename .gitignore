@@ -1,13 +1,59 @@
-# Zig build outputs
+# User specifications and milestone phase reports
+wirescope_project.txt
+wirescope_phase.txt
+report/
+
+# Zig build outputs and compiler cache
 zig-cache/
 zig-out/
 .zig-cache/
 
-# Test and temporary artifacts
+# Local diagnostic history, data storage, and baselines
+data/
+storage/
+*.db
+*.sqlite
+*.sqlite3
+
+# Confidential, secrets, and credentials
+*.env
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+*.p12
+*.pfx
+*credentials*
+*secret*
+*token*
+auth.json
+
+# Test, scratch, and temporary files
 *.tmp
+*.temp
 *.log
 scratch/
+tmp/
 
-# Local OS metadata
+# Crash dumps and core dumps
+*.dmp
+*.dump
+core
+core.*
+
+# IDE, editor, and tooling files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+
+# OS-specific metadata
 Thumbs.db
+desktop.ini
 .DS_Store
+ehthumbs.db
