@@ -1,0 +1,28 @@
+{
+  "profile_version": 1,
+  "id": "local-defensive-audit",
+  "name": "Local Defensive Exposure Audit",
+  "description": "Defensive inspection of local listeners and HTTP security headers.",
+  "scope": {
+    "targets": [
+      "localhost"
+    ],
+    "ports": [
+      8080,
+      8443
+    ],
+    "exclusions": []
+  },
+  "checks": {
+    "dns": false,
+    "tcp": true,
+    "tls": true,
+    "http": true,
+    "listeners": true
+  },
+  "limits": {
+    "max_concurrency": 4,
+    "timeout_ms": 3000
+  },
+  "authorization_acknowledged": true
+}
