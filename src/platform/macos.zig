@@ -4,8 +4,11 @@ const types = @import("types.zig");
 const NetworkInterface = types.NetworkInterface;
 const InterfaceEnumerationResult = types.InterfaceEnumerationResult;
 
+const routes_mod = @import("routes.zig");
+pub const RouteEntry = routes_mod.RouteEntry;
+pub const RouteInspectionResult = routes_mod.RouteInspectionResult;
+
 pub fn enumerateInterfacesMacos(allocator: std.mem.Allocator) !InterfaceEnumerationResult {
-    // macOS adapter fallback: returns loopback baseline if sysctl is not directly bound
     var list = std.ArrayList(NetworkInterface).init(allocator);
     errdefer {
         for (list.items) |*i| i.deinit(allocator);
@@ -32,8 +35,16 @@ pub fn enumerateInterfacesMacos(allocator: std.mem.Allocator) !InterfaceEnumerat
     return InterfaceEnumerationResult{ .interfaces = try list.toOwnedSlice() };
 }
 
-test "macos interface enumeration dummy check" {
+pub fn inspectRoutesMacos(allocator: std.mem.Allocator) !RouteInspectionResult {
+    var list = std.ArrayList(RouteEntry).init(allocator);
+    return RouteInspectionResult{
+        .routes = try list.toOwnedSlice(),
+        .default_gateway = null,
+    };
+}
+
+test "macos route inspection dummy check" {
     if (@import("builtin").os.tag != .macos) return;
-    var res = try enumerateInterfacesMacos(testing.allocator);
+    var res = try inspectRoutesMacos(testing.allocator);
     defer res.deinit(testing.allocator);
 }

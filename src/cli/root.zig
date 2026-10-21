@@ -108,7 +108,29 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 6. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 6. Routing Table dispatch
+    const is_routes_cmd = (parsed.command == .routes) or
+        (parsed.command == .diagnose and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "routes"));
+
+    if (is_routes_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var route_res = wirescope.platform.inspectRoutes(allocator) catch |err| {
+            stderr.print("Error: Failed to inspect routing table: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer route_res.deinit(allocator);
+
+        switch (parsed.format) {
+            .json => route_res.toJson(stdout) catch return ExitCodes.operational_failure,
+            .terminal, .markdown => route_res.toTerminal(stdout) catch return ExitCodes.operational_failure,
+        }
+        return ExitCodes.success;
+    }
+
+    // 7. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -174,6 +196,20 @@ test "execute interfaces command" {
     const code = execute(&iface_args, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.success, code);
     try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"interfaces\":["));
+    try testing.expectEqual(@as(usize, 0), err_fbs.getWritten().len);
+}
+
+test "execute routes command" {
+    var out_buf: [16384]u8 = undefined;
+    var err_buf: [1024]u8 = undefined;
+
+    var out_fbs = std.io.fixedBufferStream(&out_buf);
+    var err_fbs = std.io.fixedBufferStream(&err_buf);
+
+    const route_args = [_][]const u8{ "wirescope", "diagnose", "routes", "--format", "json" };
+    const code = execute(&route_args, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code);
+    try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"default_gateway\":"));
     try testing.expectEqual(@as(usize, 0), err_fbs.getWritten().len);
 }
 

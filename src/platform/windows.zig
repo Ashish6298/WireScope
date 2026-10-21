@@ -5,6 +5,10 @@ const NetworkInterface = types.NetworkInterface;
 const InterfaceStatus = types.InterfaceStatus;
 const InterfaceEnumerationResult = types.InterfaceEnumerationResult;
 
+const routes_mod = @import("routes.zig");
+pub const RouteEntry = routes_mod.RouteEntry;
+pub const RouteInspectionResult = routes_mod.RouteInspectionResult;
+
 const windows = std.os.windows;
 const ULONG = windows.ULONG;
 const DWORD = windows.DWORD;
@@ -281,4 +285,202 @@ test "windows real interface enumeration" {
         }
     }
     try testing.expect(found_loopback);
+}
+
+pub const MIB_IPFORWARDROW = extern struct {
+    dwForwardDest: DWORD,
+    dwForwardMask: DWORD,
+    dwForwardPolicy: DWORD,
+    dwForwardNextHop: DWORD,
+    dwForwardIfIndex: DWORD,
+    dwForwardType: DWORD,
+    dwForwardProto: DWORD,
+    dwForwardAge: DWORD,
+    dwForwardNextHopAS: DWORD,
+    dwForwardMetric1: DWORD,
+    dwForwardMetric2: DWORD,
+    dwForwardMetric3: DWORD,
+    dwForwardMetric4: DWORD,
+    dwForwardMetric5: DWORD,
+};
+
+pub const MIB_IPFORWARDTABLE = extern struct {
+    dwNumEntries: DWORD,
+    table: [1]MIB_IPFORWARDROW,
+};
+
+pub extern "iphlpapi" fn GetIpForwardTable(
+    pIpForwardTable: ?*MIB_IPFORWARDTABLE,
+    pdwSize: *ULONG,
+    bOrder: windows.BOOL,
+) callconv(WINAPI) DWORD;
+
+fn parseForwardProto(allocator: std.mem.Allocator, proto: DWORD) ![]const u8 {
+    return switch (proto) {
+        1 => allocator.dupe(u8, "other"),
+        2 => allocator.dupe(u8, "local"),
+        3 => allocator.dupe(u8, "netmgmt"),
+        4 => allocator.dupe(u8, "icmp"),
+        10 => allocator.dupe(u8, "ebgp"),
+        11 => allocator.dupe(u8, "ibgp"),
+        12 => allocator.dupe(u8, "ospf"),
+        else => allocator.dupe(u8, "static"),
+    };
+}
+
+fn formatIpDword(allocator: std.mem.Allocator, ip_dword: DWORD) ![]const u8 {
+    const bytes: [4]u8 = @bitCast(ip_dword);
+    return std.fmt.allocPrint(allocator, "{d}.{d}.{d}.{d}", .{
+        bytes[0], bytes[1], bytes[2], bytes[3],
+    });
+}
+
+/// Native Win32 routing table inspection using iphlpapi GetIpForwardTable
+pub fn inspectRoutesWindows(allocator: std.mem.Allocator) !RouteInspectionResult {
+    var size: ULONG = 0;
+    _ = GetIpForwardTable(null, &size, 0);
+
+    if (size == 0) {
+        // Fallback to bounded subprocess if API returned 0
+        return inspectRoutesSubprocessFallback(allocator);
+    }
+
+    const buffer = try allocator.alloc(u8, size);
+    defer allocator.free(buffer);
+
+    const table: *MIB_IPFORWARDTABLE = @ptrCast(@alignCast(buffer.ptr));
+    const ret = GetIpForwardTable(table, &size, 0);
+    if (ret != ERROR_SUCCESS) {
+        return inspectRoutesSubprocessFallback(allocator);
+    }
+
+    const count: usize = @intCast(table.dwNumEntries);
+    var list = std.ArrayList(RouteEntry).init(allocator);
+    errdefer {
+        for (list.items) |*r| r.deinit(allocator);
+        list.deinit();
+    }
+
+    var default_gw: ?[]const u8 = null;
+    errdefer if (default_gw) |gw| allocator.free(gw);
+
+    const rows_ptr: [*]const MIB_IPFORWARDROW = @ptrCast(&table.table[0]);
+
+    for (0..count) |idx| {
+        const row = rows_ptr[idx];
+
+        const dest_bytes: [4]u8 = @bitCast(row.dwForwardDest);
+        const prefix_len = @popCount(row.dwForwardMask);
+
+        const dest_str = try std.fmt.allocPrint(allocator, "{d}.{d}.{d}.{d}/{d}", .{
+            dest_bytes[0], dest_bytes[1], dest_bytes[2], dest_bytes[3], prefix_len,
+        });
+        errdefer allocator.free(dest_str);
+
+        var next_hop_str: []const u8 = undefined;
+        if (row.dwForwardNextHop == row.dwForwardDest or row.dwForwardType == 3) { // MIB_IPROUTE_TYPE_DIRECT = 3
+            next_hop_str = try allocator.dupe(u8, "On-link");
+        } else {
+            next_hop_str = try formatIpDword(allocator, row.dwForwardNextHop);
+        }
+        errdefer allocator.free(next_hop_str);
+
+        const is_default = (row.dwForwardDest == 0 and row.dwForwardMask == 0);
+        if (is_default and default_gw == null and !std.mem.eql(u8, next_hop_str, "On-link") and !std.mem.eql(u8, next_hop_str, "0.0.0.0")) {
+            default_gw = try allocator.dupe(u8, next_hop_str);
+        }
+
+        const proto_str = try parseForwardProto(allocator, row.dwForwardProto);
+        errdefer allocator.free(proto_str);
+
+        try list.append(.{
+            .destination = dest_str,
+            .next_hop = next_hop_str,
+            .interface_index = row.dwForwardIfIndex,
+            .metric = row.dwForwardMetric1,
+            .is_default_gateway = is_default,
+            .protocol = proto_str,
+        });
+    }
+
+    return RouteInspectionResult{
+        .routes = try list.toOwnedSlice(),
+        .default_gateway = default_gw,
+    };
+}
+
+/// Bounded subprocess fallback running 'route.exe print -4' with no shell interpolation
+pub fn inspectRoutesSubprocessFallback(allocator: std.mem.Allocator) !RouteInspectionResult {
+    var child = std.process.Child.init(&[_][]const u8{ "route.exe", "print", "-4" }, allocator);
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Ignore;
+
+    try child.spawn();
+
+    const max_bytes: usize = 64 * 1024; // 64 KB safety cap
+    var stdout_buf = std.ArrayList(u8).init(allocator);
+    defer stdout_buf.deinit();
+
+    var reader = child.stdout.?.reader();
+    var buf: [1024]u8 = undefined;
+    var total_read: usize = 0;
+
+    while (true) {
+        const bytes_read = try reader.read(&buf);
+        if (bytes_read == 0) break;
+        total_read += bytes_read;
+        if (total_read > max_bytes) break;
+        try stdout_buf.appendSlice(buf[0..bytes_read]);
+    }
+
+    const term = try child.wait();
+    if (term != .Exited or term.Exited != 0) {
+        return error.ApiFailure;
+    }
+
+    // Parse default gateway from route print output if present
+    var default_gw: ?[]const u8 = null;
+    var lines = std.mem.splitScalar(u8, stdout_buf.items, '\n');
+    while (lines.next()) |line| {
+        const trimmed = std.mem.trim(u8, line, " \r\t");
+        if (std.mem.startsWith(u8, trimmed, "0.0.0.0") and std.mem.indexOf(u8, trimmed, "Default Gateway:") == null) {
+            var tokens = std.mem.tokenizeAny(u8, trimmed, " \t");
+            _ = tokens.next(); // 0.0.0.0
+            _ = tokens.next(); // 0.0.0.0
+            if (tokens.next()) |gw| {
+                if (default_gw == null and !std.mem.eql(u8, gw, "On-link")) {
+                    default_gw = try allocator.dupe(u8, gw);
+                    break;
+                }
+            }
+        }
+    }
+
+    var list = std.ArrayList(RouteEntry).init(allocator);
+    return RouteInspectionResult{
+        .routes = try list.toOwnedSlice(),
+        .default_gateway = default_gw,
+    };
+}
+
+test "windows native route inspection" {
+    if (@import("builtin").os.tag != .windows) return;
+
+    var result = try inspectRoutesWindows(testing.allocator);
+    defer result.deinit(testing.allocator);
+
+    try testing.expect(result.routes.len > 0);
+    // Real systems have loopback or default routes
+    var has_dest = false;
+    for (result.routes) |r| {
+        if (r.destination.len > 0) has_dest = true;
+    }
+    try testing.expect(has_dest);
+}
+
+test "windows bounded route subprocess fallback" {
+    if (@import("builtin").os.tag != .windows) return;
+
+    var result = try inspectRoutesSubprocessFallback(testing.allocator);
+    defer result.deinit(testing.allocator);
 }

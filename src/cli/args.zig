@@ -20,6 +20,7 @@ pub const Command = enum {
     version,
     capabilities,
     interfaces,
+    routes,
     diagnose,
     audit,
     discover,
@@ -35,6 +36,7 @@ pub const Command = enum {
         if (std.mem.eql(u8, str, "version")) return .version;
         if (std.mem.eql(u8, str, "capabilities") or std.mem.eql(u8, str, "capability")) return .capabilities;
         if (std.mem.eql(u8, str, "interfaces") or std.mem.eql(u8, str, "interface")) return .interfaces;
+        if (std.mem.eql(u8, str, "routes") or std.mem.eql(u8, str, "route")) return .routes;
         if (std.mem.eql(u8, str, "diagnose")) return .diagnose;
         if (std.mem.eql(u8, str, "audit")) return .audit;
         if (std.mem.eql(u8, str, "discover")) return .discover;

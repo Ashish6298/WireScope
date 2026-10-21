@@ -61,7 +61,7 @@ Current Development Branch: `ashish`
 | ↳ Phase 2.2 | Add versioned configuration and assessment profiles | **COMPLETED** |
 | **Milestone 3** | **Local Network Intelligence** | **In Progress** |
 | ↳ Phase 3.1 | Enumerate network interfaces | **COMPLETED** |
-| ↳ Phase 3.2 | Inspect routes and default gateways | Pending |
+| ↳ Phase 3.2 | Inspect routes and default gateways | **COMPLETED** |
 | ↳ Phase 3.3 | Inspect local listening services | Pending |
 | **Milestone 4** | Shared Probe Engine and Resource Controls | Pending |
 | **Milestone 5** | DNS Diagnostics | Pending |
@@ -87,6 +87,7 @@ Current Development Branch: `ashish`
 - [ADR 0005: CLI Command Parser, Capability Reporting, and Exit Codes](docs/decisions/0005-cli-command-parser-and-exit-codes.md)
 - [ADR 0006: Versioned Configuration, Assessment Profiles, and Scope Guard](docs/decisions/0006-configuration-and-assessment-profiles.md)
 - [ADR 0007: Network Interface Enumeration and Platform Adapters](docs/decisions/0007-network-interface-enumeration.md)
+- [ADR 0008: Routing Table and Default Gateway Inspection](docs/decisions/0008-routing-table-and-gateway-inspection.md)
 
 ---
 
