@@ -53,9 +53,9 @@ Current Development Branch: `ashish`
 | **Milestone 0** | **Repository Reconnaissance & Technical Feasibility** | **COMPLETED** |
 | ↳ Phase 0.1 | Inspect repository and establish a baseline | **COMPLETED** |
 | ↳ Phase 0.2 | Pin Zig and validate uncertain APIs | **COMPLETED** |
-| **Milestone 1** | **Project Skeleton and Core Contracts** | **In Progress** |
+| **Milestone 1** | **Project Skeleton and Core Contracts** | **COMPLETED** |
 | ↳ Phase 1.1 | Establish module layout and local build commands | **COMPLETED** |
-| ↳ Phase 1.2 | Define typed results, errors, and ownership rules | Pending |
+| ↳ Phase 1.2 | Define typed results, errors, and ownership rules | **COMPLETED** |
 | **Milestone 2** | CLI, Configuration, and Profiles | Pending |
 | **Milestone 3** | Local Network Intelligence | Pending |
 | **Milestone 4** | Shared Probe Engine and Resource Controls | Pending |
@@ -77,6 +77,8 @@ Current Development Branch: `ashish`
 
 - [ADR 0001: Baseline Environment and Feasibility Setup](docs/decisions/0001-baseline-and-feasibility.md)
 - [ADR 0002: Pinned Zig Version and API Feasibility Validation](docs/decisions/0002-pinned-zig-and-api-feasibility.md)
+- [ADR 0003: Module Layout and Build System Architecture](docs/decisions/0003-module-layout-and-build-system.md)
+- [ADR 0004: Typed Results, Error Model, and Memory Ownership](docs/decisions/0004-typed-results-and-ownership-model.md)
 
 ---
 

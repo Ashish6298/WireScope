@@ -45,8 +45,8 @@ tmp/
 # Crash dumps and core dumps
 *.dmp
 *.dump
-core
-core.*
+/core
+/core.*
 
 # IDE, editor, and tooling files
 .vscode/
