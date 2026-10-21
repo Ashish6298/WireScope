@@ -16,9 +16,8 @@ The repository at `D:\wsl` initially contained only two specification documents:
    - Preserved `wirescope_project.txt` and `wirescope_phase.txt` completely untouched.
 
 2. **Directory Conventions:**
-   - Established `reports/` for ongoing implementation logs and baseline records.
-   - Established `docs/decisions/` for Architecture Decision Records (ADRs).
    - Dedicated `report/` for phase milestone delivery text reports as specified by user instructions.
+   - Established `docs/decisions/` for Architecture Decision Records (ADRs).
 
 3. **Toolchain & Compiler Dependency Management:**
    - An environment audit confirmed that `git` (v2.49.0.windows.1), `curl.exe` (v8.21.0), and `tar.exe` are present.
