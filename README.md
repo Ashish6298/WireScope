@@ -28,16 +28,18 @@ WireScope is an evidence-driven, local-first network diagnostics and defensive c
 zig version
 # Must output: 0.13.0
 
-# Run unit tests
-zig test poc/minimal_test.zig
+# Build the project (produces library and CLI binary in zig-out/)
+zig build
 
-# Build proof-of-concept tests
-zig test poc/timing_poc.zig
-zig test poc/dns_poc.zig
-zig test poc/tcp_poc.zig
-zig test poc/tls_poc.zig
-zig test poc/listeners_poc.zig
-zig test poc/interfaces_poc.zig -liphlpapi # Windows
+# Run comprehensive test suite
+zig build test
+
+# Run the CLI binary
+zig build run -- help
+zig build run -- version
+
+# Format codebase
+zig build fmt
 ```
 
 ---
@@ -48,10 +50,12 @@ Current Development Branch: `ashish`
 
 | Milestone | Title | Status |
 | :--- | :--- | :--- |
-| **Milestone 0** | **Repository Reconnaissance & Technical Feasibility** | **In Progress** |
+| **Milestone 0** | **Repository Reconnaissance & Technical Feasibility** | **COMPLETED** |
 | ↳ Phase 0.1 | Inspect repository and establish a baseline | **COMPLETED** |
 | ↳ Phase 0.2 | Pin Zig and validate uncertain APIs | **COMPLETED** |
-| **Milestone 1** | Project Skeleton and Core Contracts | Pending |
+| **Milestone 1** | **Project Skeleton and Core Contracts** | **In Progress** |
+| ↳ Phase 1.1 | Establish module layout and local build commands | **COMPLETED** |
+| ↳ Phase 1.2 | Define typed results, errors, and ownership rules | Pending |
 | **Milestone 2** | CLI, Configuration, and Profiles | Pending |
 | **Milestone 3** | Local Network Intelligence | Pending |
 | **Milestone 4** | Shared Probe Engine and Resource Controls | Pending |
