@@ -59,7 +59,10 @@ Current Development Branch: `ashish`
 | **Milestone 2** | **CLI, Configuration, and Profiles** | **COMPLETED** |
 | ↳ Phase 2.1 | Implement CLI parsing, help, version, and exit codes | **COMPLETED** |
 | ↳ Phase 2.2 | Add versioned configuration and assessment profiles | **COMPLETED** |
-| **Milestone 3** | Local Network Intelligence | Pending |
+| **Milestone 3** | **Local Network Intelligence** | **In Progress** |
+| ↳ Phase 3.1 | Enumerate network interfaces | **COMPLETED** |
+| ↳ Phase 3.2 | Inspect routes and default gateways | Pending |
+| ↳ Phase 3.3 | Inspect local listening services | Pending |
 | **Milestone 4** | Shared Probe Engine and Resource Controls | Pending |
 | **Milestone 5** | DNS Diagnostics | Pending |
 | **Milestone 6** | TCP Connectivity and Latency | Pending |
@@ -83,6 +86,7 @@ Current Development Branch: `ashish`
 - [ADR 0004: Typed Results, Error Model, and Memory Ownership](docs/decisions/0004-typed-results-and-ownership-model.md)
 - [ADR 0005: CLI Command Parser, Capability Reporting, and Exit Codes](docs/decisions/0005-cli-command-parser-and-exit-codes.md)
 - [ADR 0006: Versioned Configuration, Assessment Profiles, and Scope Guard](docs/decisions/0006-configuration-and-assessment-profiles.md)
+- [ADR 0007: Network Interface Enumeration and Platform Adapters](docs/decisions/0007-network-interface-enumeration.md)
 
 ---
 

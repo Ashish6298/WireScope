@@ -86,7 +86,29 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.invalid_input;
     }
 
-    // 5. Diagnostics, Audits, Reconnaissance, and Lab commands (Milestone 2 CLI surface)
+    // 5. Network Interfaces dispatch
+    const is_interfaces_cmd = (parsed.command == .interfaces) or
+        (parsed.command == .diagnose and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "interfaces"));
+
+    if (is_interfaces_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var iface_res = wirescope.platform.enumerateInterfaces(allocator) catch |err| {
+            stderr.print("Error: Failed to enumerate network interfaces: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer iface_res.deinit(allocator);
+
+        switch (parsed.format) {
+            .json => iface_res.toJson(stdout) catch return ExitCodes.operational_failure,
+            .terminal, .markdown => iface_res.toTerminal(stdout) catch return ExitCodes.operational_failure,
+        }
+        return ExitCodes.success;
+    }
+
+    // 6. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -138,6 +160,20 @@ test "execute help and version" {
     const code2 = execute(&ver_args, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.success, code2);
     try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"version\":"));
+    try testing.expectEqual(@as(usize, 0), err_fbs.getWritten().len);
+}
+
+test "execute interfaces command" {
+    var out_buf: [8192]u8 = undefined;
+    var err_buf: [1024]u8 = undefined;
+
+    var out_fbs = std.io.fixedBufferStream(&out_buf);
+    var err_fbs = std.io.fixedBufferStream(&err_buf);
+
+    const iface_args = [_][]const u8{ "wirescope", "diagnose", "interfaces", "--format", "json" };
+    const code = execute(&iface_args, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code);
+    try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"interfaces\":["));
     try testing.expectEqual(@as(usize, 0), err_fbs.getWritten().len);
 }
 
