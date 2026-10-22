@@ -4,6 +4,7 @@ const testing = std.testing;
 pub const scope = @import("scope.zig");
 pub const plan = @import("plan.zig");
 pub const discovery = @import("discovery.zig");
+pub const service = @import("service.zig");
 
 // Re-export core types and functions
 pub const ScopeCaps = scope.ScopeCaps;
@@ -30,8 +31,25 @@ pub const DiscoveryConfig = discovery.DiscoveryConfig;
 pub const HostDiscoveryResult = discovery.HostDiscoveryResult;
 pub const discoverHosts = discovery.discoverHosts;
 
+pub const PortState = service.PortState;
+pub const ConfidenceLevel = service.ConfidenceLevel;
+pub const IdentificationMethod = service.IdentificationMethod;
+pub const ServiceIdentity = service.ServiceIdentity;
+pub const PortCheckResult = service.PortCheckResult;
+pub const PortScanSummary = service.PortScanSummary;
+pub const ServiceScanResult = service.ServiceScanResult;
+pub const ServiceProber = service.ServiceProber;
+pub const RealServiceProber = service.RealServiceProber;
+pub const MockServiceProber = service.MockServiceProber;
+pub const checkPortsAndIdentifyServices = service.checkPortsAndIdentifyServices;
+pub const parseHttpHeadResponse = service.parseHttpHeadResponse;
+pub const parseSshBanner = service.parseSshBanner;
+pub const parseGreetingBanner = service.parseGreetingBanner;
+pub const createUnrecognizedIdentity = service.createUnrecognizedIdentity;
+
 test "recon root exports all submodules" {
     _ = scope;
     _ = plan;
     _ = discovery;
+    _ = service;
 }

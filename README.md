@@ -79,7 +79,7 @@ Current Development Branch: `ashish`
 | **Milestone 8** | **Authorized Reconnaissance** | **IN PROGRESS** |
 | ↳ Phase 8.1 | Implement scope validation and plan preview | **COMPLETED** |
 | ↳ Phase 8.2 | Build host and service discovery within policy | **COMPLETED** |
-| ↳ Phase 8.3 | Add service and version fingerprinting | Pending |
+| ↳ Phase 8.3 | Add service and version fingerprinting | **COMPLETED** |
 | ↳ Phase 8.4 | Add discovery diffs and inventory export | Pending |
 | **Milestone 9** | Defensive Security Auditors | Pending |
 | **Milestone 10** | Assessment Orchestration, Policies, and Baselines | Pending |
@@ -113,6 +113,7 @@ Current Development Branch: `ashish`
 - [ADR 0018: HTTPS Timing and Bounded Response Handling](docs/decisions/0018-https-timing-and-bounded-response-handling.md)
 - [ADR 0019: Scope Validation and Assessment Plan Preview](docs/decisions/0019-scope-validation-and-plan-preview.md)
 - [ADR 0020: Bounded Host Discovery and Reachability States](docs/decisions/0020-bounded-host-discovery.md)
+- [ADR 0021: Bounded TCP Port Checks and Conservative Service Identification](docs/decisions/0021-tcp-port-checks-and-conservative-service-identification.md)
 
 ---
 

@@ -664,16 +664,40 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
             return ExitCodes.success;
         }
 
-        // Bounded Host Discovery Execution
+        const cancel = wirescope.probes.CancellationToken.init();
+
+        // If explicit ports were specified, execute bounded port checks and conservative service identification
+        if (port_slice.len > 0) {
+            var real_prober = wirescope.recon.RealServiceProber.init(wirescope.probes.RealTcpConnector.connector());
+            var svc_result = wirescope.recon.checkPortsAndIdentifyServices(
+                allocator,
+                &plan,
+                real_prober.prober(),
+                parsed.timeout_ms,
+                parsed.rate_limit_delay_ms,
+                &cancel,
+            ) catch |err| {
+                stderr.print("Error: Port and service scan failed: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer svc_result.deinit(allocator);
+
+            switch (parsed.format) {
+                .json => svc_result.toJson(stdout) catch return ExitCodes.operational_failure,
+                .terminal, .markdown => svc_result.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            }
+            return ExitCodes.success;
+        }
+
+        // Bounded Host Discovery Execution (when discovering hosts across default ports)
         const disc_config = wirescope.recon.DiscoveryConfig{
             .timeout_ms = parsed.timeout_ms,
             .concurrency = parsed.concurrency,
             .rate_limit_delay_ms = parsed.rate_limit_delay_ms,
-            .discovery_ports = if (port_slice.len > 0) port_slice else &.{ 80, 443 },
+            .discovery_ports = &.{ 80, 443 },
             .max_hosts = parsed.max_hosts,
         };
 
-        const cancel = wirescope.probes.CancellationToken.init();
         var disc_result = wirescope.recon.discoverHosts(
             allocator,
             &plan,
@@ -1024,12 +1048,21 @@ test "execute discover command with preview, caps, remote authorization, and exc
     try testing.expectEqual(ExitCodes.invalid_input, code6);
     try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "All targets were eliminated by the exclusion list") != null);
 
-    // 7. Live Host Discovery execution on loopback (terminal and JSON)
+    // 7. Live Host Discovery execution on loopback (when no ports specified)
     out_fbs.reset();
     err_fbs.reset();
-    const live_cmd = [_][]const u8{ "wirescope", "discover", "127.0.0.1", "--ports", "80", "--format", "json" };
+    const live_cmd = [_][]const u8{ "wirescope", "discover", "127.0.0.1", "--format", "json" };
     const code7 = execute(&live_cmd, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.success, code7);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"type\":\"host_discovery_result\"") != null);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"total_scanned\":1") != null);
+
+    // 8. Live Port Check and Service Identification execution on loopback (with explicit ports)
+    out_fbs.reset();
+    err_fbs.reset();
+    const svc_cmd = [_][]const u8{ "wirescope", "discover", "127.0.0.1", "--ports", "80", "--format", "json" };
+    const code8 = execute(&svc_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code8);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"type\":\"service_scan_result\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"total_ports_checked\":1") != null);
 }
