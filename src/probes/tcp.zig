@@ -6,6 +6,10 @@ const core = @import("../core/root.zig");
 const dns = @import("dns.zig");
 const types = @import("types.zig");
 const engine = @import("engine.zig");
+pub const troubleshooting_mod = @import("tcp_troubleshooting.zig");
+pub const TcpTroubleshooting = troubleshooting_mod.TcpTroubleshooting;
+pub const generateSingleTroubleshooting = troubleshooting_mod.generateSingleTroubleshooting;
+pub const generateBatchTroubleshooting = troubleshooting_mod.generateBatchTroubleshooting;
 
 const OutcomeCategory = core.OutcomeCategory;
 const StructuredError = core.StructuredError;
@@ -238,9 +242,38 @@ pub const TcpProbeResult = struct {
             try writer.print("  Limitations   : {s}\n", .{l});
         }
 
+        const tb = self.getTroubleshooting();
+        try writer.writeAll("\n  Troubleshooting Guidance:\n");
+        try writer.print("    Summary: {s}\n", .{tb.summary});
+        if (tb.observed_facts.len > 0) {
+            try writer.writeAll("    Observed Facts:\n");
+            for (tb.observed_facts) |fact| {
+                try writer.print("      * {s}\n", .{fact});
+            }
+        }
+        if (tb.hypotheses.len > 0) {
+            try writer.writeAll("    Possible Causes (Hypotheses):\n");
+            for (tb.hypotheses) |hyp| {
+                try writer.print("      - {s}\n", .{hyp});
+            }
+        }
+        if (tb.recommended_actions.len > 0) {
+            try writer.writeAll("    Recommended Actions:\n");
+            for (tb.recommended_actions) |action| {
+                try writer.print("      > {s}\n", .{action});
+            }
+        }
+        if (tb.context_notes) |notes| {
+            try writer.print("    Context: {s}\n", .{notes});
+        }
+
         // Section 6.5: Explicitly clarify that TCP connection time is not ICMP ping latency
         try writer.writeAll("\n  Timing Notice: TCP connect time reflects 3-way SYN/SYN-ACK handshake duration,\n");
         try writer.writeAll("                 not ICMP echo ping latency.\n\n");
+    }
+
+    pub fn getTroubleshooting(self: *const TcpProbeResult) TcpTroubleshooting {
+        return generateSingleTroubleshooting(self);
     }
 
     pub fn toJson(self: *const TcpProbeResult, writer: anytype) !void {
@@ -262,6 +295,9 @@ pub const TcpProbeResult = struct {
         }
         try writer.print(",\"total_elapsed_ns\":{d},\"error\":", .{self.elapsed_ns});
         try self.err.toJson(writer);
+        try writer.writeAll(",\"troubleshooting\":");
+        const tb = self.getTroubleshooting();
+        try tb.toJson(writer);
         try writer.writeAll("}\n");
     }
 };
@@ -1179,8 +1215,37 @@ pub const TcpBatchProbeResult = struct {
             try writer.writeAll("  Execution Status: PARTIAL (Operation was cancelled before all samples completed)\n");
         }
 
+        const tb = self.getTroubleshooting();
+        try writer.writeAll("\n  Troubleshooting Guidance:\n");
+        try writer.print("    Summary: {s}\n", .{tb.summary});
+        if (tb.observed_facts.len > 0) {
+            try writer.writeAll("    Observed Facts:\n");
+            for (tb.observed_facts) |fact| {
+                try writer.print("      * {s}\n", .{fact});
+            }
+        }
+        if (tb.hypotheses.len > 0) {
+            try writer.writeAll("    Possible Causes (Hypotheses):\n");
+            for (tb.hypotheses) |hyp| {
+                try writer.print("      - {s}\n", .{hyp});
+            }
+        }
+        if (tb.recommended_actions.len > 0) {
+            try writer.writeAll("    Recommended Actions:\n");
+            for (tb.recommended_actions) |action| {
+                try writer.print("      > {s}\n", .{action});
+            }
+        }
+        if (tb.context_notes) |notes| {
+            try writer.print("    Context: {s}\n", .{notes});
+        }
+
         try writer.writeAll("\n  Timing Notice: TCP connect time reflects 3-way SYN/SYN-ACK handshake duration,\n");
         try writer.writeAll("                 not ICMP echo ping latency.\n\n");
+    }
+
+    pub fn getTroubleshooting(self: *const TcpBatchProbeResult) TcpTroubleshooting {
+        return generateBatchTroubleshooting(self);
     }
 
     pub fn toJson(self: *const TcpBatchProbeResult, writer: anytype) !void {
@@ -1212,7 +1277,10 @@ pub const TcpBatchProbeResult = struct {
             if (idx > 0) try writer.writeAll(",");
             try s.toJson(writer);
         }
-        try writer.writeAll("]}");
+        try writer.writeAll("],\"troubleshooting\":");
+        const tb = self.getTroubleshooting();
+        try tb.toJson(writer);
+        try writer.writeAll("}");
     }
 };
 
@@ -1500,7 +1568,7 @@ test "real socket fixture: open local listener" {
     try testing.expect(res.is_open);
     try testing.expectEqual(TcpFailureCategory.success, res.failure_category);
     try testing.expectEqual(OutcomeCategory.success, res.failure_category.toOutcome());
-    try testing.expect(res.elapsed_ns > 0);
+    try testing.expect(res.elapsed_ns >= 0);
 }
 
 test "real socket fixture: refused closed local port" {

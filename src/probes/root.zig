@@ -6,6 +6,7 @@ pub const types = @import("types.zig");
 pub const engine = @import("engine.zig");
 pub const dns = @import("dns.zig");
 pub const tcp = @import("tcp.zig");
+pub const tcp_troubleshooting = @import("tcp_troubleshooting.zig");
 
 pub const ProbeEngine = engine.ProbeEngine;
 pub const EngineConfig = types.EngineConfig;
@@ -42,6 +43,9 @@ pub const FailureBreakdown = tcp.FailureBreakdown;
 pub const TcpSampleRecord = tcp.TcpSampleRecord;
 pub const TcpBatchProbeResult = tcp.TcpBatchProbeResult;
 pub const executeTcpBatchProbe = tcp.executeTcpBatchProbe;
+pub const TcpTroubleshooting = tcp_troubleshooting.TcpTroubleshooting;
+pub const generateSingleTroubleshooting = tcp_troubleshooting.generateSingleTroubleshooting;
+pub const generateBatchTroubleshooting = tcp_troubleshooting.generateBatchTroubleshooting;
 
 pub const ProbeType = enum {
     dns,
@@ -60,6 +64,7 @@ test "probes root exports engine and types" {
     _ = engine;
     _ = dns;
     _ = tcp;
+    _ = tcp_troubleshooting;
     const config = ProbeConfig{};
     try testing.expectEqual(@as(u32, 5000), config.timeout_ms);
 }
