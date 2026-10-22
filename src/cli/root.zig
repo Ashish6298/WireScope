@@ -656,9 +656,39 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         };
         defer plan.deinit(allocator);
 
+        if (parsed.preview or parsed.dry_run) {
+            switch (parsed.format) {
+                .json => plan.toJson(stdout) catch return ExitCodes.operational_failure,
+                .terminal, .markdown => plan.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            }
+            return ExitCodes.success;
+        }
+
+        // Bounded Host Discovery Execution
+        const disc_config = wirescope.recon.DiscoveryConfig{
+            .timeout_ms = parsed.timeout_ms,
+            .concurrency = parsed.concurrency,
+            .rate_limit_delay_ms = parsed.rate_limit_delay_ms,
+            .discovery_ports = if (port_slice.len > 0) port_slice else &.{ 80, 443 },
+            .max_hosts = parsed.max_hosts,
+        };
+
+        const cancel = wirescope.probes.CancellationToken.init();
+        var disc_result = wirescope.recon.discoverHosts(
+            allocator,
+            &plan,
+            disc_config,
+            wirescope.probes.RealTcpConnector.connector(),
+            &cancel,
+        ) catch |err| {
+            stderr.print("Error: Host discovery execution failed: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer disc_result.deinit(allocator);
+
         switch (parsed.format) {
-            .json => plan.toJson(stdout) catch return ExitCodes.operational_failure,
-            .terminal, .markdown => plan.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            .json => disc_result.toJson(stdout) catch return ExitCodes.operational_failure,
+            .terminal, .markdown => disc_result.toTerminal(stdout) catch return ExitCodes.operational_failure,
         }
 
         return ExitCodes.success;
@@ -956,7 +986,7 @@ test "execute discover command with preview, caps, remote authorization, and exc
     // 2. Loopback discovery preview (JSON)
     out_fbs.reset();
     err_fbs.reset();
-    const json_cmd = [_][]const u8{ "wirescope", "discover", "127.0.0.1", "--ports", "80", "--format", "json" };
+    const json_cmd = [_][]const u8{ "wirescope", "discover", "127.0.0.1", "--ports", "80", "--preview", "--format", "json" };
     const code2 = execute(&json_cmd, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.success, code2);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"type\":\"assessment_plan_preview\"") != null);
@@ -965,7 +995,7 @@ test "execute discover command with preview, caps, remote authorization, and exc
     // 3. Remote target without authorization acknowledgement is rejected
     out_fbs.reset();
     err_fbs.reset();
-    const unauth_cmd = [_][]const u8{ "wirescope", "discover", "192.168.1.50", "--ports", "80" };
+    const unauth_cmd = [_][]const u8{ "wirescope", "discover", "192.168.1.50", "--ports", "80", "--preview" };
     const code3 = execute(&unauth_cmd, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.invalid_input, code3);
     try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "requires explicit authorization acknowledgement") != null);
@@ -973,7 +1003,7 @@ test "execute discover command with preview, caps, remote authorization, and exc
     // 4. Remote target with authorization acknowledgement succeeds
     out_fbs.reset();
     err_fbs.reset();
-    const auth_cmd = [_][]const u8{ "wirescope", "discover", "192.168.1.50", "--ports", "80", "--confirm-authorized" };
+    const auth_cmd = [_][]const u8{ "wirescope", "discover", "192.168.1.50", "--ports", "80", "--confirm-authorized", "--preview" };
     const code4 = execute(&auth_cmd, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.success, code4);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Scope Status:       Authorized") != null);
@@ -981,7 +1011,7 @@ test "execute discover command with preview, caps, remote authorization, and exc
     // 5. Broad CIDR (< /24) rejected by safety gate
     out_fbs.reset();
     err_fbs.reset();
-    const broad_cidr = [_][]const u8{ "wirescope", "discover", "10.0.0.0/16", "--confirm-authorized" };
+    const broad_cidr = [_][]const u8{ "wirescope", "discover", "10.0.0.0/16", "--confirm-authorized", "--preview" };
     const code5 = execute(&broad_cidr, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.invalid_input, code5);
     try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "/24 to /32") != null);
@@ -989,8 +1019,17 @@ test "execute discover command with preview, caps, remote authorization, and exc
     // 6. Exclusions filter eliminating all targets
     out_fbs.reset();
     err_fbs.reset();
-    const excluded_all = [_][]const u8{ "wirescope", "discover", "127.0.0.1", "--exclude", "127.0.0.1" };
+    const excluded_all = [_][]const u8{ "wirescope", "discover", "127.0.0.1", "--exclude", "127.0.0.1", "--preview" };
     const code6 = execute(&excluded_all, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.invalid_input, code6);
     try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "All targets were eliminated by the exclusion list") != null);
+
+    // 7. Live Host Discovery execution on loopback (terminal and JSON)
+    out_fbs.reset();
+    err_fbs.reset();
+    const live_cmd = [_][]const u8{ "wirescope", "discover", "127.0.0.1", "--ports", "80", "--format", "json" };
+    const code7 = execute(&live_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code7);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"type\":\"host_discovery_result\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"total_scanned\":1") != null);
 }

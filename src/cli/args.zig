@@ -95,7 +95,7 @@ pub const ParsedCli = struct {
     show_help: bool = false,
     show_version: bool = false,
 
-    // Phase 8.1 reconnaissance options
+    // Phase 8.1 & 8.2 reconnaissance options
     ports: ?[]const u8 = null,
     exclusions: ?[]const u8 = null,
     confirm_authorized: bool = false,
@@ -103,6 +103,8 @@ pub const ParsedCli = struct {
     max_hosts: usize = 256,
     max_ports: usize = 100,
     max_operations: usize = 5000,
+    concurrency: u16 = 4,
+    rate_limit_delay_ms: u32 = 5,
 };
 
 pub fn parse(args: []const []const u8) ParseError!ParsedCli {
@@ -230,6 +232,20 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
             const parsed_op = std.fmt.parseInt(usize, op_str, 10) catch return error.InvalidCapValue;
             if (parsed_op == 0) return error.InvalidCapValue;
             result.max_operations = parsed_op;
+        } else if (std.mem.eql(u8, arg, "--concurrency")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            const con_str = args[i];
+            const parsed_con = std.fmt.parseInt(u16, con_str, 10) catch return error.InvalidCapValue;
+            if (parsed_con == 0 or parsed_con > 64) return error.InvalidCapValue;
+            result.concurrency = parsed_con;
+        } else if (std.mem.eql(u8, arg, "--rate-limit") or std.mem.eql(u8, arg, "--rate-limit-ms")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            const rl_str = args[i];
+            const parsed_rl = std.fmt.parseInt(u32, rl_str, 10) catch return error.InvalidCapValue;
+            if (parsed_rl > 60000) return error.InvalidCapValue;
+            result.rate_limit_delay_ms = parsed_rl;
         } else if (std.mem.startsWith(u8, arg, "-")) {
             return error.UnknownOption;
         } else {
