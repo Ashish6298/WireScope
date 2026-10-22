@@ -31,11 +31,24 @@ pub const TlsObservationRecord = runner.TlsObservationRecord;
 pub const HttpObservationRecord = runner.HttpObservationRecord;
 pub const ListenerObservationRecord = runner.ListenerObservationRecord;
 
+pub const baseline = @import("baseline.zig");
+pub const DiffClassification = baseline.DiffClassification;
+pub const BaselineItemType = baseline.BaselineItemType;
+pub const NormalizedBaselineItem = baseline.NormalizedBaselineItem;
+pub const BaselineSnapshot = baseline.BaselineSnapshot;
+pub const DiffEntry = baseline.DiffEntry;
+pub const BaselineDiffReport = baseline.BaselineDiffReport;
+pub const BaselineChain = baseline.BaselineChain;
+pub const BaselineError = baseline.BaselineError;
+pub const BaselineManager = baseline.BaselineManager;
+pub const normalizeObservations = baseline.normalizeObservations;
+
 test "assessment root re-exports compile cleanly" {
     _ = config;
     _ = profile;
     _ = redact;
     _ = runner;
+    _ = baseline;
 
     const def_cfg = WireScopeConfig{};
     try def_cfg.validate();

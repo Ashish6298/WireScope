@@ -949,7 +949,78 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 16. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 16. Baseline Snapshot Management & Deterministic Diffs dispatch (Milestone 10 Phase 10.2)
+    if (parsed.command == .baseline) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var mgr = wirescope.assessment.BaselineManager.init(allocator);
+        defer mgr.deinit();
+
+        const action = if (parsed.subcommand) |s| s else "list";
+
+        if (std.mem.eql(u8, action, "list")) {
+            mgr.list(stdout) catch return ExitCodes.operational_failure;
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "create") or std.mem.eql(u8, action, "save")) {
+            const name = if (parsed.target) |t| t else "default-baseline";
+
+            var runner = wirescope.assessment.AssessmentRunner.init(allocator);
+            var assessment = runner.run(wirescope.assessment.BuiltinProfiles.loopback_diagnostic, .{ .mode = .fixture }) catch {
+                stderr.print("Error: Failed to execute baseline assessment\n", .{}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer assessment.deinit();
+
+            const snapshot = mgr.create(name, &assessment) catch |err| {
+                stderr.print("Error: Failed to create baseline snapshot '{s}': {s}\n", .{ name, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            stdout.print("Baseline snapshot '{s}' (v{d}) successfully created. Items: {d}, Hash: {s}\n", .{
+                snapshot.name,
+                snapshot.version,
+                snapshot.items.len,
+                snapshot.snapshot_hash,
+            }) catch return ExitCodes.operational_failure;
+
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "diff") or std.mem.eql(u8, action, "compare")) {
+            const name = if (parsed.target) |t| t else "default-baseline";
+
+            var runner = wirescope.assessment.AssessmentRunner.init(allocator);
+            var assessment1 = runner.run(wirescope.assessment.BuiltinProfiles.loopback_diagnostic, .{ .mode = .fixture }) catch {
+                return ExitCodes.operational_failure;
+            };
+            defer assessment1.deinit();
+
+            _ = mgr.create(name, &assessment1) catch {};
+
+            var assessment2 = runner.run(wirescope.assessment.BuiltinProfiles.loopback_diagnostic, .{ .mode = .fixture }) catch {
+                return ExitCodes.operational_failure;
+            };
+            defer assessment2.deinit();
+
+            var diff_report = mgr.compare(allocator, name, null, &assessment2) catch {
+                return ExitCodes.operational_failure;
+            };
+            defer diff_report.deinit();
+
+            switch (parsed.format) {
+                .terminal => diff_report.toTerminal(stdout) catch return ExitCodes.operational_failure,
+                .json => diff_report.toJson(stdout) catch return ExitCodes.operational_failure,
+                .markdown => diff_report.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+            }
+
+            if (diff_report.changed_count > 0 or diff_report.removed_count > 0) {
+                return ExitCodes.findings_or_violations;
+            }
+            return ExitCodes.success;
+        }
+    }
+
+    // 17. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -1408,4 +1479,35 @@ test "execute discover command with preview, caps, remote authorization, and exc
     try testing.expect(code21 == ExitCodes.success or code21 == ExitCodes.findings_or_violations);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"report_type\":\"assessment_result\"") != null);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"manifest_hash\":") != null);
+
+    // 19. Baseline Snapshot Creation and Listing (Milestone 10 Phase 10.2)
+    out_fbs.reset();
+    err_fbs.reset();
+    const base_create = [_][]const u8{ "wirescope", "baseline", "save", "prod-baseline" };
+    const code22 = execute(&base_create, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code22);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Baseline snapshot 'prod-baseline' (v1) successfully created") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const base_list = [_][]const u8{ "wirescope", "baseline", "list" };
+    const code23 = execute(&base_list, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code23);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE STORED BASELINE SNAPSHOTS") != null);
+
+    // 20. Baseline Deterministic Diff Comparison (JSON & Markdown)
+    out_fbs.reset();
+    err_fbs.reset();
+    const base_diff_json = [_][]const u8{ "wirescope", "baseline", "diff", "prod-baseline", "--format", "json" };
+    const code24 = execute(&base_diff_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code24 == ExitCodes.success or code24 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"report_type\":\"baseline_diff\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"baseline_name\":\"prod-baseline\"") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const base_diff_md = [_][]const u8{ "wirescope", "baseline", "diff", "prod-baseline", "--format", "markdown" };
+    const code25 = execute(&base_diff_md, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code25 == ExitCodes.success or code25 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Baseline Deterministic Diff Report") != null);
 }
