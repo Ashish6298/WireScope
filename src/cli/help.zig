@@ -99,6 +99,7 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
             \\  http <url>              Audit HTTP security headers (HSTS, CSP, Cookies, CORS)
             \\  tls <host:port>         Audit TLS configuration and certificate expiry
             \\  local                   Audit local listening ports for unexpected wildcard exposure
+            \\  rules                   List versioned defensive rules and CVE disclaimer
             \\
             \\Options (audit http):
             \\  --max-redirects <n>             Maximum redirect hops to follow (default: 5)

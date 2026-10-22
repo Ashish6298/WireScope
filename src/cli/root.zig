@@ -886,7 +886,27 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 14. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 14. Versioned Defensive Rules Registry & Policy Engine dispatch (Milestone 9 Phase 9.3)
+    const is_rules_cmd = (parsed.command == .policy or (parsed.command == .audit and parsed.subcommand != null and (std.mem.eql(u8, parsed.subcommand.?, "rules") or std.mem.eql(u8, parsed.subcommand.?, "rule"))));
+
+    if (is_rules_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var reg = wirescope.audit.RuleRegistry.init(allocator);
+        defer reg.deinit();
+        reg.registerDefaults();
+
+        switch (parsed.format) {
+            .json => reg.toJson(stdout) catch return ExitCodes.operational_failure,
+            .terminal => reg.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            .markdown => reg.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+        }
+        return ExitCodes.success;
+    }
+
+    // 15. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -1302,4 +1322,30 @@ test "execute discover command with preview, caps, remote authorization, and exc
     const code16 = execute(&audit_local_md, out_fbs.writer(), err_fbs.writer());
     try testing.expect(code16 == ExitCodes.success or code16 == ExitCodes.findings_or_violations);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Local Listening Service Exposure Audit") != null);
+
+    // 16. Versioned Rules Engine registry listing (Milestone 9 Phase 9.3)
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_rules_cmd = [_][]const u8{ "wirescope", "audit", "rules" };
+    const code17 = execute(&audit_rules_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code17);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE VERSIONED DEFENSIVE RULES REGISTRY") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-RULE-TLS-MIN-VERSION") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "no claim of comprehensive CVE") != null);
+
+    // 17. Policy command listing (JSON and Markdown formats)
+    out_fbs.reset();
+    err_fbs.reset();
+    const policy_json_cmd = [_][]const u8{ "wirescope", "policy", "--format", "json" };
+    const code18 = execute(&policy_json_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code18);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"registry_type\":\"versioned_rules\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"cve_disclaimer\":") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const policy_md_cmd = [_][]const u8{ "wirescope", "policy", "--format", "markdown" };
+    const code19 = execute(&policy_md_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code19);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Versioned Defensive Rules Registry") != null);
 }

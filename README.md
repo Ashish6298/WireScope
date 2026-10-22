@@ -81,10 +81,10 @@ Current Development Branch: `ashish`
 | ↳ Phase 8.2 | Build host and service discovery within policy | **COMPLETED** |
 | ↳ Phase 8.3 | Add service and version fingerprinting | **COMPLETED** |
 | ↳ Phase 8.4 | Add discovery diffs and inventory export | **COMPLETED** |
-| **Milestone 9** | **Defensive Security Auditors** | **IN PROGRESS** |
+| **Milestone 9** | **Defensive Security Auditors** | **COMPLETED** |
 | ↳ Phase 9.1 | Audit HTTP security configuration | **COMPLETED** |
 | ↳ Phase 9.2 | Build a local exposure auditor | **COMPLETED** |
-| ↳ Phase 9.3 | Implement the versioned local rules engine | Pending |
+| ↳ Phase 9.3 | Implement the versioned local rules engine | **COMPLETED** |
 | **Milestone 10** | Assessment Orchestration, Policies, and Baselines | Pending |
 | **Milestone 11** | Local Persistence, History, and Integrity | Pending |
 | **Milestone 12** | Reporting and Automation Contracts | Pending |
@@ -120,6 +120,7 @@ Current Development Branch: `ashish`
 - [ADR 0022: Asset and Exposure Inventory](docs/decisions/0022-asset-and-exposure-inventory.md)
 - [ADR 0023: Defensive HTTP Security Configuration Auditor](docs/decisions/0023-http-security-configuration-auditor.md)
 - [ADR 0024: Defensive Local Exposure Auditor](docs/decisions/0024-local-exposure-auditor.md)
+- [ADR 0025: Versioned Local Rules Engine](docs/decisions/0025-versioned-local-rules-engine.md)
 
 ---
 
