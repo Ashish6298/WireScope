@@ -10,6 +10,9 @@ pub const tcp_troubleshooting = @import("tcp_troubleshooting.zig");
 pub const tls = @import("tls.zig");
 pub const tls_troubleshooting = @import("tls_troubleshooting.zig");
 pub const tls_fixtures = @import("tls_fixtures.zig");
+pub const https = @import("https.zig");
+pub const https_troubleshooting = @import("https_troubleshooting.zig");
+pub const https_fixtures = @import("https_fixtures.zig");
 
 pub const ProbeEngine = engine.ProbeEngine;
 pub const EngineConfig = types.EngineConfig;
@@ -63,6 +66,19 @@ pub const executeTlsProbe = tls.executeTlsProbe;
 pub const TlsTroubleshooting = tls_troubleshooting.TlsTroubleshooting;
 pub const generateTlsTroubleshooting = tls_troubleshooting.generateTlsTroubleshooting;
 
+pub const HttpsFailureCategory = https.HttpsFailureCategory;
+pub const HttpsConfig = https.HttpsConfig;
+pub const RedirectHop = https.RedirectHop;
+pub const HttpsProbeResult = https.HttpsProbeResult;
+pub const ParsedUrl = https.ParsedUrl;
+pub const parseUrl = https.parseUrl;
+pub const isRedirectPermitted = https.isRedirectPermitted;
+pub const HttpsConnector = https.HttpsConnector;
+pub const MockHttpsConnector = https.MockHttpsConnector;
+pub const executeHttpsProbe = https.executeHttpsProbe;
+pub const HttpsTroubleshooting = https_troubleshooting.HttpsTroubleshooting;
+pub const generateHttpsTroubleshooting = https_troubleshooting.generateHttpsTroubleshooting;
+
 pub const ProbeType = enum {
     dns,
     tcp,
@@ -84,6 +100,9 @@ test "probes root exports engine and types" {
     _ = tls;
     _ = tls_troubleshooting;
     _ = tls_fixtures;
+    _ = https;
+    _ = https_troubleshooting;
+    _ = https_fixtures;
     const config = ProbeConfig{};
     try testing.expectEqual(@as(u32, 5000), config.timeout_ms);
 }

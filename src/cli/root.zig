@@ -37,6 +37,12 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
             error.InvalidFormat => {
                 stderr.print("Error: Invalid output format. Supported formats: terminal, json, markdown.\n", .{}) catch {};
             },
+            error.InvalidRedirectLimit => {
+                stderr.print("Error: Invalid redirect limit. Must be an integer between 0 and 50.\n", .{}) catch {};
+            },
+            error.InvalidResponseSize => {
+                stderr.print("Error: Invalid response size limit. Must be an integer between 1 and 104857600 bytes.\n", .{}) catch {};
+            },
             error.UnknownOption => {
                 stderr.print("Error: Unrecognized option flag.\nRun 'wirescope --help' for usage.\n", .{}) catch {};
             },
@@ -490,7 +496,78 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 11. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 11. HTTPS Diagnostics & Response Timing Probe dispatch
+    const is_https_cmd = (parsed.command == .https) or
+        (parsed.command == .diagnose and parsed.subcommand != null and (std.mem.eql(u8, parsed.subcommand.?, "https") or std.mem.eql(u8, parsed.subcommand.?, "http")));
+
+    if (is_https_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var raw_target_opt: ?[]const u8 = null;
+        if (parsed.command == .https) {
+            raw_target_opt = parsed.target orelse parsed.subcommand;
+        } else {
+            raw_target_opt = parsed.target;
+        }
+
+        const raw_target = raw_target_opt orelse {
+            stderr.print("Error: Target URL required for HTTPS probe. Usage: wirescope https <url>\n", .{}) catch {};
+            return ExitCodes.invalid_input;
+        };
+
+        const config = wirescope.probes.HttpsConfig{
+            .timeout_ms = parsed.timeout_ms,
+            .max_redirects = parsed.max_redirects,
+            .max_response_bytes = parsed.max_response_bytes,
+            .allow_redirect_scope_expansion = parsed.allow_redirect_scope_expansion,
+            .verify_certificates = !parsed.insecure,
+            .insecure_skip_verify = parsed.insecure,
+            .custom_ca_path = parsed.ca_bundle_path,
+        };
+
+        var mock_connector = wirescope.probes.MockHttpsConnector{};
+        const connector = mock_connector.connector();
+        var cancel = wirescope.probes.CancellationToken{};
+        const now_sec = std.time.timestamp();
+
+        var https_res = wirescope.probes.executeHttpsProbe(
+            allocator,
+            raw_target,
+            config,
+            connector,
+            &cancel,
+            null,
+            now_sec,
+        ) catch |err| {
+            stderr.print("Error: HTTPS probe execution failed: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer https_res.deinit(allocator);
+
+        switch (parsed.format) {
+            .json => {
+                var envelope = https_res.toEnvelope(allocator, "op_https_cli", null) catch return ExitCodes.operational_failure;
+                defer envelope.deinit(allocator);
+                envelope.toJson(stdout) catch return ExitCodes.operational_failure;
+            },
+            .terminal, .markdown => https_res.toTerminal(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        if (https_res.failure_category == .malformed_input or https_res.failure_category == .redirect_out_of_scope) {
+            return ExitCodes.invalid_input;
+        } else if (https_res.failure_category == .cancelled) {
+            return ExitCodes.cancelled;
+        } else if (https_res.failure_category == .timeout or https_res.failure_category == .operational_failure or https_res.failure_category == .tcp_connection_failed) {
+            return ExitCodes.operational_failure;
+        } else if (https_res.failure_category != .success) {
+            return ExitCodes.findings_or_violations;
+        }
+        return ExitCodes.success;
+    }
+
+    // 12. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -732,4 +809,35 @@ test "execute tls command with missing target and invalid port" {
     const code3 = execute(&help_tls, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.success, code3);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "wirescope tls") != null);
+}
+
+test "execute https command with missing target, help, and probe output" {
+    var out_buf: [16384]u8 = undefined;
+    var err_buf: [1024]u8 = undefined;
+
+    // 1. Missing target
+    var out_fbs = std.io.fixedBufferStream(&out_buf);
+    var err_fbs = std.io.fixedBufferStream(&err_buf);
+    const missing_target = [_][]const u8{ "wirescope", "https" };
+    const code1 = execute(&missing_target, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code1);
+    try testing.expect(err_fbs.getWritten().len > 0);
+
+    // 2. Help https
+    out_fbs.reset();
+    err_fbs.reset();
+    const help_https = [_][]const u8{ "wirescope", "help", "https" };
+    const code2 = execute(&help_https, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code2);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "wirescope https") != null);
+
+    // 3. JSON format probe
+    out_fbs.reset();
+    err_fbs.reset();
+    const json_https = [_][]const u8{ "wirescope", "https", "https://localhost:443/", "--format", "json" };
+    const code3 = execute(&json_https, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code3);
+    try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"operation_id\":"));
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"operation_type\":\"http\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"status_code\":200") != null);
 }

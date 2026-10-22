@@ -25,6 +25,7 @@ pub const Command = enum {
     dns,
     tcp,
     tls,
+    https,
     diagnose,
     audit,
     discover,
@@ -45,6 +46,7 @@ pub const Command = enum {
         if (std.mem.eql(u8, str, "dns") or std.mem.eql(u8, str, "resolve")) return .dns;
         if (std.mem.eql(u8, str, "tcp") or std.mem.eql(u8, str, "connect") or std.mem.eql(u8, str, "latency")) return .tcp;
         if (std.mem.eql(u8, str, "tls") or std.mem.eql(u8, str, "ssl")) return .tls;
+        if (std.mem.eql(u8, str, "https") or std.mem.eql(u8, str, "http")) return .https;
         if (std.mem.eql(u8, str, "diagnose")) return .diagnose;
         if (std.mem.eql(u8, str, "audit")) return .audit;
         if (std.mem.eql(u8, str, "discover")) return .discover;
@@ -63,6 +65,8 @@ pub const ParseError = error{
     InvalidCount,
     InvalidInterval,
     InvalidFormat,
+    InvalidRedirectLimit,
+    InvalidResponseSize,
     UnknownOption,
 };
 
@@ -75,6 +79,9 @@ pub const ParsedCli = struct {
     timeout_ms: u32 = 5000,
     count: u32 = 1,
     interval_ms: u32 = 1000,
+    max_redirects: u32 = 5,
+    max_response_bytes: usize = 1024 * 1024,
+    allow_redirect_scope_expansion: bool = false,
     output_path: ?[]const u8 = null,
     config_path: ?[]const u8 = null,
     profile_path: ?[]const u8 = null,
@@ -164,6 +171,22 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
             i += 1;
             if (i >= args.len) return error.MissingOptionValue;
             result.server_name = args[i];
+        } else if (std.mem.eql(u8, arg, "--max-redirects") or std.mem.eql(u8, arg, "--redirects")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            const r_str = args[i];
+            const parsed_r = std.fmt.parseInt(u32, r_str, 10) catch return error.InvalidRedirectLimit;
+            if (parsed_r > 50) return error.InvalidRedirectLimit;
+            result.max_redirects = parsed_r;
+        } else if (std.mem.eql(u8, arg, "--max-response-size") or std.mem.eql(u8, arg, "--max-size")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            const s_str = args[i];
+            const parsed_s = std.fmt.parseInt(usize, s_str, 10) catch return error.InvalidResponseSize;
+            if (parsed_s == 0 or parsed_s > 100 * 1024 * 1024) return error.InvalidResponseSize;
+            result.max_response_bytes = parsed_s;
+        } else if (std.mem.eql(u8, arg, "--allow-redirect-scope-expansion") or std.mem.eql(u8, arg, "--allow-out-of-scope-redirects")) {
+            result.allow_redirect_scope_expansion = true;
         } else if (std.mem.startsWith(u8, arg, "-")) {
             return error.UnknownOption;
         } else {
@@ -199,6 +222,9 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
         result.target = result.subcommand;
     }
     if (result.command == .tls and result.target == null) {
+        result.target = result.subcommand;
+    }
+    if (result.command == .https and result.target == null) {
         result.target = result.subcommand;
     }
 
@@ -300,4 +326,20 @@ test "parse tls command and flags" {
     try testing.expectEqualStrings("tls", parsed2.subcommand.?);
     try testing.expectEqualStrings("example.com", parsed2.target.?);
     try testing.expect(!parsed2.insecure);
+}
+
+test "parse https command and flags" {
+    const args1 = [_][]const u8{ "wirescope", "https", "https://example.com/api", "--max-redirects", "3", "--max-response-size", "2048", "--allow-redirect-scope-expansion" };
+    const parsed1 = try parse(&args1);
+    try testing.expectEqual(Command.https, parsed1.command);
+    try testing.expectEqualStrings("https://example.com/api", parsed1.target.?);
+    try testing.expectEqual(@as(u32, 3), parsed1.max_redirects);
+    try testing.expectEqual(@as(usize, 2048), parsed1.max_response_bytes);
+    try testing.expect(parsed1.allow_redirect_scope_expansion);
+
+    const bad_redir = [_][]const u8{ "wirescope", "https", "https://example.com", "--max-redirects", "100" };
+    try testing.expectError(error.InvalidRedirectLimit, parse(&bad_redir));
+
+    const bad_size = [_][]const u8{ "wirescope", "https", "https://example.com", "--max-response-size", "0" };
+    try testing.expectError(error.InvalidResponseSize, parse(&bad_size));
 }
