@@ -666,6 +666,58 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
 
         const cancel = wirescope.probes.CancellationToken.init();
 
+        // If inventory output is requested, build and export normalized asset inventory
+        if (parsed.inventory) {
+            const now_sec = std.time.timestamp();
+            var inv = wirescope.recon.AssetInventory.init(allocator, now_sec);
+            defer inv.deinit(allocator);
+
+            if (port_slice.len > 0) {
+                var real_prober = wirescope.recon.RealServiceProber.init(wirescope.probes.RealTcpConnector.connector());
+                var svc_result = wirescope.recon.checkPortsAndIdentifyServices(
+                    allocator,
+                    &plan,
+                    real_prober.prober(),
+                    parsed.timeout_ms,
+                    parsed.rate_limit_delay_ms,
+                    &cancel,
+                ) catch |err| {
+                    stderr.print("Error: Port and service scan failed: {s}\n", .{@errorName(err)}) catch {};
+                    return ExitCodes.operational_failure;
+                };
+                defer svc_result.deinit(allocator);
+
+                inv.ingestServiceScan(allocator, &svc_result, now_sec) catch return ExitCodes.operational_failure;
+            } else {
+                const disc_config = wirescope.recon.DiscoveryConfig{
+                    .timeout_ms = parsed.timeout_ms,
+                    .concurrency = parsed.concurrency,
+                    .rate_limit_delay_ms = parsed.rate_limit_delay_ms,
+                    .discovery_ports = &.{ 80, 443 },
+                    .max_hosts = parsed.max_hosts,
+                };
+                var disc_result = wirescope.recon.discoverHosts(
+                    allocator,
+                    &plan,
+                    disc_config,
+                    wirescope.probes.RealTcpConnector.connector(),
+                    &cancel,
+                ) catch |err| {
+                    stderr.print("Error: Host discovery execution failed: {s}\n", .{@errorName(err)}) catch {};
+                    return ExitCodes.operational_failure;
+                };
+                defer disc_result.deinit(allocator);
+
+                inv.ingestHostDiscovery(allocator, &disc_result, now_sec) catch return ExitCodes.operational_failure;
+            }
+
+            switch (parsed.format) {
+                .json => inv.toJson(stdout) catch return ExitCodes.operational_failure,
+                .terminal, .markdown => inv.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            }
+            return ExitCodes.success;
+        }
+
         // If explicit ports were specified, execute bounded port checks and conservative service identification
         if (port_slice.len > 0) {
             var real_prober = wirescope.recon.RealServiceProber.init(wirescope.probes.RealTcpConnector.connector());
@@ -1065,4 +1117,13 @@ test "execute discover command with preview, caps, remote authorization, and exc
     try testing.expectEqual(ExitCodes.success, code8);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"type\":\"service_scan_result\"") != null);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"total_ports_checked\":1") != null);
+
+    // 9. Live Normalized Asset Inventory generation on loopback (with --inventory flag)
+    out_fbs.reset();
+    err_fbs.reset();
+    const inv_cmd = [_][]const u8{ "wirescope", "discover", "127.0.0.1", "--inventory", "--format", "json" };
+    const code9 = execute(&inv_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code9);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"type\":\"asset_inventory\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"total_hosts\":1") != null);
 }

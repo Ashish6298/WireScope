@@ -5,6 +5,7 @@ pub const scope = @import("scope.zig");
 pub const plan = @import("plan.zig");
 pub const discovery = @import("discovery.zig");
 pub const service = @import("service.zig");
+pub const inventory = @import("inventory.zig");
 
 // Re-export core types and functions
 pub const ScopeCaps = scope.ScopeCaps;
@@ -47,9 +48,17 @@ pub const parseSshBanner = service.parseSshBanner;
 pub const parseGreetingBanner = service.parseGreetingBanner;
 pub const createUnrecognizedIdentity = service.createUnrecognizedIdentity;
 
+pub const AssetService = inventory.AssetService;
+pub const AssetHost = inventory.AssetHost;
+pub const DiffCategory = inventory.DiffCategory;
+pub const DiffEntry = inventory.DiffEntry;
+pub const InventoryDiff = inventory.InventoryDiff;
+pub const AssetInventory = inventory.AssetInventory;
+
 test "recon root exports all submodules" {
     _ = scope;
     _ = plan;
     _ = discovery;
     _ = service;
+    _ = inventory;
 }
