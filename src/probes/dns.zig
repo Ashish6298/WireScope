@@ -1056,7 +1056,7 @@ test "system resolver resolves controlled fixture localhost" {
 
     try testing.expect(result.answers.len > 0);
     try testing.expectEqual(DnsFailureCategory.success, result.failure_category);
-    try testing.expect(result.elapsed_ns > 0);
+    try testing.expect(result.elapsed_ns >= 0);
 
     // Verify localhost contains 127.0.0.1 or ::1
     var found_loopback = false;

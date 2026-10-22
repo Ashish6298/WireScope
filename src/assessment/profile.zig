@@ -90,6 +90,38 @@ pub const AssessmentProfile = struct {
         const port_count = if (self.scope.ports.len == 0) 1 else self.scope.ports.len;
         return host_count * port_count;
     }
+
+    /// Checks if a given host and port are permitted within the profile's scope
+    pub fn isScopePermitted(self: *const AssessmentProfile, host: []const u8, port: u16) bool {
+        // 1. Check exclusions
+        for (self.scope.exclusions) |ex| {
+            if (std.mem.eql(u8, ex, host)) return false;
+        }
+
+        // 2. Check targets
+        var host_matched = false;
+        for (self.scope.targets) |t| {
+            if (std.mem.eql(u8, t, host)) {
+                host_matched = true;
+                break;
+            }
+        }
+        if (!host_matched) return false;
+
+        // 3. Check ports (if ports list is empty, any port is permitted; otherwise must match)
+        if (self.scope.ports.len > 0) {
+            var port_matched = false;
+            for (self.scope.ports) |p| {
+                if (p == port) {
+                    port_matched = true;
+                    break;
+                }
+            }
+            if (!port_matched) return false;
+        }
+
+        return true;
+    }
 };
 
 /// Safe built-in loopback profile examples
@@ -146,6 +178,9 @@ test "loopback diagnostic profile is valid" {
     try profile.validate();
     try testing.expectEqualStrings("loopback-diagnostics", profile.id);
     try testing.expectEqual(@as(usize, 3), profile.calculatePlannedOperations());
+    try testing.expect(profile.isScopePermitted("127.0.0.1", 80));
+    try testing.expect(!profile.isScopePermitted("127.0.0.1", 22)); // Port 22 not in profile
+    try testing.expect(!profile.isScopePermitted("192.168.1.1", 80)); // Host not in profile
 }
 
 test "local defensive audit profile is valid" {

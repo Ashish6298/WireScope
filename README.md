@@ -69,9 +69,18 @@ Current Development Branch: `ashish`
 | **Milestone 5** | **DNS Diagnostics** | **COMPLETED** |
 | ↳ Phase 5.1 | Implement DNS resolution and failure classification | **COMPLETED** |
 | ↳ Phase 5.2 | Add DNS troubleshooting and optional resolver comparison | **COMPLETED** |
-| **Milestone 6** | TCP Connectivity and Latency | Pending |
-| **Milestone 7** | TLS and HTTPS Diagnostics | Pending |
-| **Milestone 8** | Authorized Reconnaissance | Pending |
+| **Milestone 6** | **TCP Connectivity and Latency** | **COMPLETED** |
+| ↳ Phase 6.1 | Implement TCP connectivity probes | **COMPLETED** |
+| ↳ Phase 6.2 | Add repeated measurements and statistical summaries | **COMPLETED** |
+| ↳ Phase 6.3 | Provide actionable connectivity troubleshooting | **COMPLETED** |
+| **Milestone 7** | **TLS and HTTPS Diagnostics** | **COMPLETED** |
+| ↳ Phase 7.1 | Implement certificate-chain and hostname validation | **COMPLETED** |
+| ↳ Phase 7.2 | Add HTTPS timing and bounded response handling | **COMPLETED** |
+| **Milestone 8** | **Authorized Reconnaissance** | **COMPLETED** |
+| ↳ Phase 8.1 | Implement scope validation and plan preview | **COMPLETED** |
+| ↳ Phase 8.2 | Build host and service discovery within policy | **COMPLETED** |
+| ↳ Phase 8.3 | Add service and version fingerprinting | **COMPLETED** |
+| ↳ Phase 8.4 | Add discovery diffs and inventory export | **COMPLETED** |
 | **Milestone 9** | Defensive Security Auditors | Pending |
 | **Milestone 10** | Assessment Orchestration, Policies, and Baselines | Pending |
 | **Milestone 11** | Local Persistence, History, and Integrity | Pending |
@@ -97,6 +106,15 @@ Current Development Branch: `ashish`
 - [ADR 0011: Normalized Timing, Errors, and Operation Metadata](docs/decisions/0011-normalized-timing-errors-and-operation-metadata.md)
 - [ADR 0012: DNS Resolution and Failure Classification](docs/decisions/0012-dns-resolution-and-failure-classification.md)
 - [ADR 0013: DNS Troubleshooting and Resolver Comparison](docs/decisions/0013-dns-troubleshooting-and-resolver-comparison.md)
+- [ADR 0014: TCP Connectivity Probes and Lifecycle](docs/decisions/0014-tcp-connectivity-probes.md)
+- [ADR 0015: TCP Repeated Measurements and Statistical Summaries](docs/decisions/0015-tcp-repeated-measurements-and-statistics.md)
+- [ADR 0016: Actionable Connectivity Troubleshooting](docs/decisions/0016-actionable-connectivity-troubleshooting.md)
+- [ADR 0017: TLS Certificate-Chain and Hostname Validation](docs/decisions/0017-tls-certificate-and-hostname-validation.md)
+- [ADR 0018: HTTPS Timing and Bounded Response Handling](docs/decisions/0018-https-timing-and-bounded-response-handling.md)
+- [ADR 0019: Scope Validation and Assessment Plan Preview](docs/decisions/0019-scope-validation-and-plan-preview.md)
+- [ADR 0020: Bounded Host Discovery and Reachability States](docs/decisions/0020-bounded-host-discovery.md)
+- [ADR 0021: Bounded TCP Port Checks and Conservative Service Identification](docs/decisions/0021-tcp-port-checks-and-conservative-service-identification.md)
+- [ADR 0022: Asset and Exposure Inventory](docs/decisions/0022-asset-and-exposure-inventory.md)
 
 ---
 

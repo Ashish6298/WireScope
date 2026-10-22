@@ -17,6 +17,11 @@ pub const timing = @import("timing.zig");
 pub const TimingStages = timing.TimingStages;
 pub const OperationIdGenerator = timing.OperationIdGenerator;
 
+pub const stats = @import("stats.zig");
+pub const LatencyStats = stats.LatencyStats;
+pub const PercentileSummary = stats.PercentileSummary;
+pub const PercentileThresholds = stats.PercentileThresholds;
+
 pub const results = @import("results.zig");
 pub const OperationType = results.OperationType;
 pub const OperationEnvelope = results.OperationEnvelope;
@@ -49,6 +54,7 @@ test "core root re-exports compile and test cleanly" {
     _ = errors;
     _ = clock;
     _ = timing;
+    _ = stats;
     _ = results;
     _ = models;
 

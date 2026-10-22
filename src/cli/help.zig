@@ -32,6 +32,7 @@ pub fn printRootHelp(writer: anytype) !void {
         \\  wirescope diagnose dns example.com --format json
         \\  wirescope diagnose tcp 127.0.0.1:8080 --timeout 2000
         \\  wirescope audit http https://localhost:8443
+        \\  wirescope discover 127.0.0.1 --ports 80,443 --preview
         \\  wirescope capabilities --format json
         \\  wirescope lab run dns_failure
         \\
@@ -55,6 +56,38 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
             \\  routes                  Inspect local routing table and default gateway
             \\
         , .{});
+    } else if (std.mem.eql(u8, cmd, "tls")) {
+        try writer.print(
+            \\wirescope tls — TLS Certificate & Hostname Validation Probe
+            \\
+            \\Usage:
+            \\  wirescope tls <target> [port] [options]
+            \\
+            \\Options:
+            \\  --ca-bundle <path>      Custom trusted Certificate Authority (CA) bundle PEM file
+            \\  --insecure              Explicitly bypass certificate chain and hostname verification
+            \\  --server-name <sni>     Override Server Name Indication (SNI)
+            \\  -t, --timeout <ms>      Handshake timeout in milliseconds (default: 5000)
+            \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\
+        , .{});
+    } else if (std.mem.eql(u8, cmd, "https") or std.mem.eql(u8, cmd, "http")) {
+        try writer.print(
+            \\wirescope https — HTTPS Timing and Bounded Response Diagnostics
+            \\
+            \\Usage:
+            \\  wirescope https <url> [options]
+            \\
+            \\Options:
+            \\  --max-redirects <n>             Maximum redirect hops to follow (default: 5)
+            \\  --max-response-size <bytes>     Maximum response size bound in bytes (default: 1048576)
+            \\  --allow-redirect-scope-expansion Allow redirects to follow destinations outside initial host
+            \\  --ca-bundle <path>              Custom trusted Certificate Authority (CA) bundle PEM file
+            \\  --insecure                      Explicitly bypass TLS certificate and hostname verification
+            \\  -t, --timeout <ms>              Total operation timeout in milliseconds (default: 5000)
+            \\  -f, --format <format>           Output format: terminal, json, markdown
+            \\
+        , .{});
     } else if (std.mem.eql(u8, cmd, "audit")) {
         try writer.print(
             \\wirescope audit — Defensive Security Configuration Audits
@@ -70,14 +103,25 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
         , .{});
     } else if (std.mem.eql(u8, cmd, "discover")) {
         try writer.print(
-            \\wirescope discover — Authorized Bounded Asset Reconnaissance
+            \\wirescope discover — Authorized Bounded Asset Reconnaissance & Scope Preview
             \\
             \\Usage:
-            \\  wirescope discover <cidr|range> --ports <ports> [options]
+            \\  wirescope discover <target|cidr> [options]
             \\
             \\Options:
-            \\  --dry-run               Preview target operation counts before executing probes
-            \\  -t, --timeout <ms>      Per-probe timeout
+            \\  --ports <ports>         Target ports or ranges (e.g. '80,443' or '80-85')
+            \\  --exclude <targets>     Target IPs, hostnames, or CIDRs to exclude
+            \\  --confirm-authorized    Acknowledge explicit authorization for remote non-loopback targets
+            \\  --preview, --dry-run    Display planned host/port/check operation count without executing
+            \\  --max-hosts <n>         Maximum host cap (default: 256)
+            \\  --max-ports <n>         Maximum port cap (default: 100)
+            \\  --max-operations <n>    Maximum total operations cap (default: 5000)
+            \\  -t, --timeout <ms>      Per-operation probe timeout in milliseconds (default: 5000)
+            \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\
+            \\Disclaimer:
+            \\  WireScope cannot verify legal permission or ownership; operators bear sole
+            \\  legal responsibility for ensuring explicit written authorization before assessing remote targets.
             \\
         , .{});
     } else if (std.mem.eql(u8, cmd, "baseline")) {
@@ -125,12 +169,16 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
 }
 
 test "help output prints without error" {
-    var buf: [2048]u8 = undefined;
+    var buf: [4096]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     try printRootHelp(fbs.writer());
     try testing.expect(fbs.getWritten().len > 0);
 
     fbs.reset();
     try printSubcommandHelp(fbs.writer(), "diagnose");
+    try testing.expect(fbs.getWritten().len > 0);
+
+    fbs.reset();
+    try printSubcommandHelp(fbs.writer(), "discover");
     try testing.expect(fbs.getWritten().len > 0);
 }
