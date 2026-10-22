@@ -13,8 +13,8 @@ zig-out/
 *.pdb
 
 # Local diagnostic history, data storage, and baselines
-data/
-storage/
+/data/
+/storage/
 *.db
 *.sqlite
 *.sqlite3

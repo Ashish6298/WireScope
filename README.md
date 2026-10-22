@@ -90,7 +90,10 @@ Current Development Branch: `ashish`
 | ↳ Phase 10.2 | Implement explicit baselines and deterministic diffs | **COMPLETED** |
 | ↳ Phase 10.3 | Normalize findings and remediation tracking | **COMPLETED** |
 | ↳ Phase 10.4 | Implement offline policy evaluation | **COMPLETED** |
-| **Milestone 11** | Local Persistence, History, and Integrity | Pending |
+| **Milestone 11** | **Local Persistence, History, and Integrity** | **IN PROGRESS** |
+| ↳ Phase 11.1 | Implement versioned local storage | **COMPLETED** |
+| ↳ Phase 11.2 | Add history queries, retention, and recovery | Pending |
+| ↳ Phase 11.3 | Add report integrity manifests | Pending |
 | **Milestone 12** | Reporting and Automation Contracts | Pending |
 | **Milestone 13** | Isolated Practice Lab | Pending |
 | **Milestone 14** | Hardening, Cross-Platform Validation, and Release Prep | Pending |
@@ -129,6 +132,7 @@ Current Development Branch: `ashish`
 - [ADR 0027: Explicit Baselines and Deterministic Diffs](docs/decisions/0027-explicit-baselines-and-deterministic-diffs.md)
 - [ADR 0028: Normalize Findings and Remediation Tracking](docs/decisions/0028-normalize-findings-and-remediation-tracking.md)
 - [ADR 0029: Offline Policy Evaluation](docs/decisions/0029-offline-policy-evaluation.md)
+- [ADR 0030: Versioned Local Storage](docs/decisions/0030-versioned-local-storage.md)
 
 ---
 
