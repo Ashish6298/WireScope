@@ -8,7 +8,17 @@ pub const errors = @import("errors.zig");
 pub const ErrorCode = errors.ErrorCode;
 pub const StructuredError = errors.StructuredError;
 
+pub const clock = @import("clock.zig");
+pub const Clock = clock.Clock;
+pub const SystemClock = clock.SystemClock;
+pub const MockClock = clock.MockClock;
+
+pub const timing = @import("timing.zig");
+pub const TimingStages = timing.TimingStages;
+pub const OperationIdGenerator = timing.OperationIdGenerator;
+
 pub const results = @import("results.zig");
+pub const OperationType = results.OperationType;
 pub const OperationEnvelope = results.OperationEnvelope;
 pub const OperationPayload = results.OperationPayload;
 pub const DnsPayload = results.DnsPayload;
@@ -37,6 +47,8 @@ pub const Version = struct {
 test "core root re-exports compile and test cleanly" {
     _ = outcome;
     _ = errors;
+    _ = clock;
+    _ = timing;
     _ = results;
     _ = models;
 

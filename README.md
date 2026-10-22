@@ -59,9 +59,16 @@ Current Development Branch: `ashish`
 | **Milestone 2** | **CLI, Configuration, and Profiles** | **COMPLETED** |
 | ↳ Phase 2.1 | Implement CLI parsing, help, version, and exit codes | **COMPLETED** |
 | ↳ Phase 2.2 | Add versioned configuration and assessment profiles | **COMPLETED** |
-| **Milestone 3** | Local Network Intelligence | Pending |
-| **Milestone 4** | Shared Probe Engine and Resource Controls | Pending |
-| **Milestone 5** | DNS Diagnostics | Pending |
+| **Milestone 3** | **Local Network Intelligence** | **COMPLETED** |
+| ↳ Phase 3.1 | Enumerate network interfaces | **COMPLETED** |
+| ↳ Phase 3.2 | Inspect routes and default gateways | **COMPLETED** |
+| ↳ Phase 3.3 | Inspect local listening services | **COMPLETED** |
+| **Milestone 4** | **Shared Probe Engine and Resource Controls** | **COMPLETED** |
+| ↳ Phase 4.1 | Build bounded scheduling, deadlines, and cancellation | **COMPLETED** |
+| ↳ Phase 4.2 | Normalize timing, errors, and operation metadata | **COMPLETED** |
+| **Milestone 5** | **DNS Diagnostics** | **COMPLETED** |
+| ↳ Phase 5.1 | Implement DNS resolution and failure classification | **COMPLETED** |
+| ↳ Phase 5.2 | Add DNS troubleshooting and optional resolver comparison | **COMPLETED** |
 | **Milestone 6** | TCP Connectivity and Latency | Pending |
 | **Milestone 7** | TLS and HTTPS Diagnostics | Pending |
 | **Milestone 8** | Authorized Reconnaissance | Pending |
@@ -83,6 +90,13 @@ Current Development Branch: `ashish`
 - [ADR 0004: Typed Results, Error Model, and Memory Ownership](docs/decisions/0004-typed-results-and-ownership-model.md)
 - [ADR 0005: CLI Command Parser, Capability Reporting, and Exit Codes](docs/decisions/0005-cli-command-parser-and-exit-codes.md)
 - [ADR 0006: Versioned Configuration, Assessment Profiles, and Scope Guard](docs/decisions/0006-configuration-and-assessment-profiles.md)
+- [ADR 0007: Network Interface Enumeration and Platform Adapters](docs/decisions/0007-network-interface-enumeration.md)
+- [ADR 0008: Routing Table and Default Gateway Inspection](docs/decisions/0008-routing-table-and-gateway-inspection.md)
+- [ADR 0009: Local Listening Services Inspection](docs/decisions/0009-listening-services-inspection.md)
+- [ADR 0010: Shared Probe Engine Scheduling, Deadlines, and Cancellation](docs/decisions/0010-probe-engine-scheduling-deadlines-and-cancellation.md)
+- [ADR 0011: Normalized Timing, Errors, and Operation Metadata](docs/decisions/0011-normalized-timing-errors-and-operation-metadata.md)
+- [ADR 0012: DNS Resolution and Failure Classification](docs/decisions/0012-dns-resolution-and-failure-classification.md)
+- [ADR 0013: DNS Troubleshooting and Resolver Comparison](docs/decisions/0013-dns-troubleshooting-and-resolver-comparison.md)
 
 ---
 

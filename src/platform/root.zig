@@ -3,6 +3,24 @@ const testing = std.testing;
 
 pub const OsTag = @import("builtin").os.tag;
 
+pub const types = @import("types.zig");
+pub const NetworkInterface = types.NetworkInterface;
+pub const InterfaceStatus = types.InterfaceStatus;
+pub const InterfaceEnumerationResult = types.InterfaceEnumerationResult;
+
+pub const routes = @import("routes.zig");
+pub const RouteEntry = routes.RouteEntry;
+pub const RouteInspectionResult = routes.RouteInspectionResult;
+
+pub const listeners = @import("listeners.zig");
+pub const BindingType = listeners.BindingType;
+pub const ListenerEntry = listeners.ListenerEntry;
+pub const ListenerInspectionResult = listeners.ListenerInspectionResult;
+
+pub const windows = @import("windows.zig");
+pub const linux = @import("linux.zig");
+pub const macos = @import("macos.zig");
+
 pub const PlatformInfo = struct {
     os_name: []const u8,
     is_supported: bool,
@@ -17,7 +35,129 @@ pub fn getPlatformInfo() PlatformInfo {
     };
 }
 
+/// Enumerates network interfaces on the current host operating system
+pub fn enumerateInterfaces(allocator: std.mem.Allocator) !InterfaceEnumerationResult {
+    return switch (OsTag) {
+        .windows => windows.enumerateInterfacesWindows(allocator),
+        .linux => linux.enumerateInterfacesLinux(allocator),
+        .macos => macos.enumerateInterfacesMacos(allocator),
+        else => error.UnsupportedPlatformApi,
+    };
+}
+
+/// Inspects routing table and default gateway on the current host operating system
+pub fn inspectRoutes(allocator: std.mem.Allocator) !RouteInspectionResult {
+    return switch (OsTag) {
+        .windows => windows.inspectRoutesWindows(allocator),
+        .linux => linux.inspectRoutesLinux(allocator),
+        .macos => macos.inspectRoutesMacos(allocator),
+        else => error.UnsupportedPlatformApi,
+    };
+}
+
+/// Inspects local listening TCP sockets and classifies binding types
+pub fn inspectListeners(allocator: std.mem.Allocator) !ListenerInspectionResult {
+    return switch (OsTag) {
+        .windows => windows.inspectListenersWindows(allocator),
+        .linux => linux.inspectListenersLinux(allocator),
+        .macos => macos.inspectListenersMacos(allocator),
+        else => error.UnsupportedPlatformApi,
+    };
+}
+
 test "platform adapter detects valid OS" {
     const info = getPlatformInfo();
     try testing.expect(info.is_supported);
+}
+
+test "real interface enumeration on current OS" {
+    _ = types;
+    _ = windows;
+    _ = linux;
+    _ = macos;
+
+    var result = try enumerateInterfaces(testing.allocator);
+    defer result.deinit(testing.allocator);
+
+    try testing.expect(result.interfaces.len > 0);
+
+    var has_loopback = false;
+    for (result.interfaces) |iface| {
+        try testing.expect(iface.name.len > 0);
+        if (iface.is_loopback) {
+            has_loopback = true;
+        }
+    }
+    try testing.expect(has_loopback);
+
+    var json_buf: [4096]u8 = undefined;
+    var json_fbs = std.io.fixedBufferStream(&json_buf);
+    try result.toJson(json_fbs.writer());
+    try testing.expect(json_fbs.getWritten().len > 0);
+    try testing.expect(std.mem.startsWith(u8, json_fbs.getWritten(), "{\"interfaces\":["));
+
+    var term_buf: [4096]u8 = undefined;
+    var term_fbs = std.io.fixedBufferStream(&term_buf);
+    try result.toTerminal(term_fbs.writer());
+    try testing.expect(term_fbs.getWritten().len > 0);
+    try testing.expect(std.mem.startsWith(u8, term_fbs.getWritten(), "Network Interfaces"));
+}
+
+test "real route inspection on current OS" {
+    _ = routes;
+
+    var result = try inspectRoutes(testing.allocator);
+    defer result.deinit(testing.allocator);
+
+    try testing.expect(result.routes.len > 0);
+
+    var json_buf: [8192]u8 = undefined;
+    var json_fbs = std.io.fixedBufferStream(&json_buf);
+    try result.toJson(json_fbs.writer());
+    try testing.expect(json_fbs.getWritten().len > 0);
+    try testing.expect(std.mem.startsWith(u8, json_fbs.getWritten(), "{\"default_gateway\":"));
+
+    var term_buf: [8192]u8 = undefined;
+    var term_fbs = std.io.fixedBufferStream(&term_buf);
+    try result.toTerminal(term_fbs.writer());
+    try testing.expect(term_fbs.getWritten().len > 0);
+    try testing.expect(std.mem.startsWith(u8, term_fbs.getWritten(), "Routing Table"));
+}
+
+test "real listener inspection on current OS" {
+    _ = listeners;
+
+    // Start a real controlled TCP listener on loopback
+    const loopback = try std.net.Address.parseIp("127.0.0.1", 0);
+    var server = try loopback.listen(.{ .reuse_address = true });
+    defer server.deinit();
+
+    const actual_port = server.listen_address.getPort();
+
+    var result = try inspectListeners(testing.allocator);
+    defer result.deinit(testing.allocator);
+
+    try testing.expect(result.listeners.len > 0);
+
+    var found_our_port = false;
+    for (result.listeners) |l| {
+        if (l.local_port == actual_port) {
+            found_our_port = true;
+            try testing.expectEqual(BindingType.loopback_only, l.binding_type);
+            break;
+        }
+    }
+    try testing.expect(found_our_port);
+
+    var json_out = std.ArrayList(u8).init(testing.allocator);
+    defer json_out.deinit();
+    try result.toJson(json_out.writer());
+    try testing.expect(json_out.items.len > 0);
+    try testing.expect(std.mem.startsWith(u8, json_out.items, "{\"permission_limited\":"));
+
+    var term_out = std.ArrayList(u8).init(testing.allocator);
+    defer term_out.deinit();
+    try result.toTerminal(term_out.writer());
+    try testing.expect(term_out.items.len > 0);
+    try testing.expect(std.mem.startsWith(u8, term_out.items, "Local Listening Services"));
 }

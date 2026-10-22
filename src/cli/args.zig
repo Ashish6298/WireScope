@@ -19,6 +19,10 @@ pub const Command = enum {
     help,
     version,
     capabilities,
+    interfaces,
+    routes,
+    listeners,
+    dns,
     diagnose,
     audit,
     discover,
@@ -33,6 +37,10 @@ pub const Command = enum {
         if (std.mem.eql(u8, str, "help")) return .help;
         if (std.mem.eql(u8, str, "version")) return .version;
         if (std.mem.eql(u8, str, "capabilities") or std.mem.eql(u8, str, "capability")) return .capabilities;
+        if (std.mem.eql(u8, str, "interfaces") or std.mem.eql(u8, str, "interface")) return .interfaces;
+        if (std.mem.eql(u8, str, "routes") or std.mem.eql(u8, str, "route")) return .routes;
+        if (std.mem.eql(u8, str, "listeners") or std.mem.eql(u8, str, "listener") or std.mem.eql(u8, str, "ports")) return .listeners;
+        if (std.mem.eql(u8, str, "dns") or std.mem.eql(u8, str, "resolve")) return .dns;
         if (std.mem.eql(u8, str, "diagnose")) return .diagnose;
         if (std.mem.eql(u8, str, "audit")) return .audit;
         if (std.mem.eql(u8, str, "discover")) return .discover;
@@ -62,6 +70,7 @@ pub const ParsedCli = struct {
     output_path: ?[]const u8 = null,
     config_path: ?[]const u8 = null,
     profile_path: ?[]const u8 = null,
+    resolvers: ?[]const u8 = null,
     non_interactive: bool = false,
     dry_run: bool = false,
     show_help: bool = false,
@@ -116,6 +125,10 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
             i += 1;
             if (i >= args.len) return error.MissingOptionValue;
             result.profile_path = args[i];
+        } else if (std.mem.eql(u8, arg, "--compare") or std.mem.eql(u8, arg, "--resolvers")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            result.resolvers = args[i];
         } else if (std.mem.startsWith(u8, arg, "-")) {
             return error.UnknownOption;
         } else {
@@ -142,6 +155,10 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
                 },
             }
         }
+    }
+
+    if (result.command == .dns and result.target == null) {
+        result.target = result.subcommand;
     }
 
     return result;
@@ -175,6 +192,12 @@ test "parse format and timeout options" {
     try testing.expectEqual(@as(u32, 2500), parsed.timeout_ms);
     try testing.expectEqualStrings("cfg.json", parsed.config_path.?);
     try testing.expectEqualStrings("prof.json", parsed.profile_path.?);
+
+    const compare_args = [_][]const u8{ "wirescope", "dns", "example.com", "--compare", "1.1.1.1,8.8.8.8" };
+    const parsed_compare = try parse(&compare_args);
+    try testing.expectEqual(Command.dns, parsed_compare.command);
+    try testing.expectEqualStrings("example.com", parsed_compare.target.?);
+    try testing.expectEqualStrings("1.1.1.1,8.8.8.8", parsed_compare.resolvers.?);
 }
 
 test "parse rejects invalid timeout and format" {
