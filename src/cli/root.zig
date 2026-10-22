@@ -886,7 +886,46 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 14. Versioned Defensive Rules Registry & Policy Engine dispatch (Milestone 9 Phase 9.3)
+    // 14. Offline Policy Evaluation dispatch (Milestone 10 Phase 10.4)
+    const is_policy_eval_cmd = (parsed.command == .policy and parsed.subcommand != null and (std.mem.eql(u8, parsed.subcommand.?, "check") or std.mem.eql(u8, parsed.subcommand.?, "eval") or std.mem.eql(u8, parsed.subcommand.?, "evaluate") or std.mem.eql(u8, parsed.subcommand.?, "test"))) or
+        (parsed.command == .audit and parsed.subcommand != null and (std.mem.eql(u8, parsed.subcommand.?, "policy") or std.mem.eql(u8, parsed.subcommand.?, "policies")));
+
+    if (is_policy_eval_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var prof = wirescope.assessment.BuiltinProfiles.local_security_audit;
+        if (parsed.profile_path) |p| {
+            if (std.mem.eql(u8, p, "loopback-diagnostics") or std.mem.eql(u8, p, "loopback")) {
+                prof = wirescope.assessment.BuiltinProfiles.loopback_diagnostic;
+            }
+        }
+
+        const pol = prof.policy orelse wirescope.policy.BuiltinPolicies.local_hardened;
+        var evaluator = wirescope.policy.OfflinePolicyEvaluator.init(allocator, pol);
+
+        var runner = wirescope.assessment.AssessmentRunner.init(allocator);
+        var assessment = runner.run(prof, .{ .mode = .fixture }) catch {
+            return ExitCodes.operational_failure;
+        };
+        defer assessment.deinit();
+
+        var report = evaluator.evaluateAssessment(&assessment) catch {
+            return ExitCodes.operational_failure;
+        };
+        defer report.deinit();
+
+        switch (parsed.format) {
+            .terminal => report.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            .json => report.toJson(stdout) catch return ExitCodes.operational_failure,
+            .markdown => report.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        return report.toExitCode();
+    }
+
+    // 15. Versioned Defensive Rules Registry & Policy Engine dispatch (Milestone 9 Phase 9.3)
     const is_rules_cmd = (parsed.command == .policy or (parsed.command == .audit and parsed.subcommand != null and (std.mem.eql(u8, parsed.subcommand.?, "rules") or std.mem.eql(u8, parsed.subcommand.?, "rule"))));
 
     if (is_rules_cmd) {
@@ -1586,4 +1625,34 @@ test "execute discover command with preview, caps, remote authorization, and exc
     try testing.expectEqual(ExitCodes.success, code28);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Defensive Findings & Remediation Tracker") != null);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "`WS-FND-") != null);
+
+    // 22. Offline Policy Evaluation Dispatch (Milestone 10 Phase 10.4)
+    out_fbs.reset();
+    err_fbs.reset();
+    const policy_check_term = [_][]const u8{ "wirescope", "policy", "check" };
+    const code29 = execute(&policy_check_term, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code29);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE OFFLINE POLICY EVALUATION REPORT") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "COMPLIANT") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Exit Code:            0") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "PASS") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const policy_check_json = [_][]const u8{ "wirescope", "policy", "check", "--format", "json" };
+    const code30 = execute(&policy_check_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code30);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"report_type\":\"policy_evaluation\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"is_offline\":true") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"is_compliant\":true") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"exit_code\":0") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const policy_check_md = [_][]const u8{ "wirescope", "policy", "check", "--format", "markdown" };
+    const code31 = execute(&policy_check_md, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code31);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Offline Policy Evaluation Report") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "**COMPLIANT**") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Offline (Zero Network Activity)") != null);
 }
