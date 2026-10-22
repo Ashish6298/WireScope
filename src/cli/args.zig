@@ -23,6 +23,7 @@ pub const Command = enum {
     routes,
     listeners,
     dns,
+    tcp,
     diagnose,
     audit,
     discover,
@@ -41,6 +42,7 @@ pub const Command = enum {
         if (std.mem.eql(u8, str, "routes") or std.mem.eql(u8, str, "route")) return .routes;
         if (std.mem.eql(u8, str, "listeners") or std.mem.eql(u8, str, "listener") or std.mem.eql(u8, str, "ports")) return .listeners;
         if (std.mem.eql(u8, str, "dns") or std.mem.eql(u8, str, "resolve")) return .dns;
+        if (std.mem.eql(u8, str, "tcp") or std.mem.eql(u8, str, "connect")) return .tcp;
         if (std.mem.eql(u8, str, "diagnose")) return .diagnose;
         if (std.mem.eql(u8, str, "audit")) return .audit;
         if (std.mem.eql(u8, str, "discover")) return .discover;
@@ -160,6 +162,9 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
     if (result.command == .dns and result.target == null) {
         result.target = result.subcommand;
     }
+    if (result.command == .tcp and result.target == null) {
+        result.target = result.subcommand;
+    }
 
     return result;
 }
@@ -192,6 +197,11 @@ test "parse format and timeout options" {
     try testing.expectEqual(@as(u32, 2500), parsed.timeout_ms);
     try testing.expectEqualStrings("cfg.json", parsed.config_path.?);
     try testing.expectEqualStrings("prof.json", parsed.profile_path.?);
+
+    const tcp_cmd_args = [_][]const u8{ "wirescope", "tcp", "localhost:8080" };
+    const parsed_tcp = try parse(&tcp_cmd_args);
+    try testing.expectEqual(Command.tcp, parsed_tcp.command);
+    try testing.expectEqualStrings("localhost:8080", parsed_tcp.target.?);
 
     const compare_args = [_][]const u8{ "wirescope", "dns", "example.com", "--compare", "1.1.1.1,8.8.8.8" };
     const parsed_compare = try parse(&compare_args);

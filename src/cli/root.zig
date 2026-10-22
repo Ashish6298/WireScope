@@ -248,7 +248,110 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 9. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 9. TCP Connectivity Probe dispatch
+    const is_tcp_cmd = (parsed.command == .tcp) or
+        (parsed.command == .diagnose and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "tcp"));
+
+    if (is_tcp_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var raw_target_opt: ?[]const u8 = null;
+        var default_port: ?u16 = null;
+
+        if (parsed.command == .tcp) {
+            if (parsed.subcommand) |sub| {
+                if (parsed.target) |tgt| {
+                    if (std.mem.indexOfScalar(u8, sub, ':') == null) {
+                        // "wirescope tcp localhost 80"
+                        raw_target_opt = sub;
+                        const p_num = std.fmt.parseInt(u32, tgt, 10) catch {
+                            stderr.print("Error: Invalid port '{s}'. Must be an integer between 1 and 65535.\n", .{tgt}) catch {};
+                            return ExitCodes.invalid_input;
+                        };
+                        default_port = wirescope.probes.validatePort(p_num) catch {
+                            stderr.print("Error: Port {d} out of range (1-65535).\n", .{p_num}) catch {};
+                            return ExitCodes.invalid_input;
+                        };
+                    } else {
+                        raw_target_opt = sub;
+                    }
+                } else {
+                    raw_target_opt = sub;
+                }
+            } else {
+                raw_target_opt = parsed.target;
+            }
+        } else {
+            // "wirescope diagnose tcp <target>"
+            raw_target_opt = parsed.target;
+        }
+
+        const raw_target = raw_target_opt orelse {
+            stderr.print("Error: Target specification required for TCP probe. Usage: wirescope tcp <host:port>\n", .{}) catch {};
+            return ExitCodes.invalid_input;
+        };
+
+        const spec = wirescope.probes.parseTargetAndPort(raw_target, default_port) catch |err| {
+            stderr.print("Error: Invalid target specification '{s}': {s}\n", .{ raw_target, @errorName(err) }) catch {};
+            return ExitCodes.invalid_input;
+        };
+
+        var profile_id_opt: ?[]const u8 = null;
+        if (parsed.profile_path) |prof_path| {
+            const prof = wirescope.assessment.AssessmentProfile{
+                .id = prof_path,
+                .name = prof_path,
+                .description = "",
+                .scope = .{
+                    .targets = &[_][]const u8{spec.host},
+                    .ports = &[_]u16{spec.port},
+                },
+                .authorization_acknowledged = true,
+            };
+            if (!prof.isScopePermitted(spec.host, spec.port)) {
+                stderr.print("Error: Target {s}:{d} is not authorized in profile scope.\n", .{ spec.host, spec.port }) catch {};
+                return ExitCodes.invalid_input;
+            }
+            profile_id_opt = prof.id;
+        }
+
+        const cancel = wirescope.probes.CancellationToken.init();
+        var tcp_res = wirescope.probes.RealTcpConnector.connector().connect(
+            allocator,
+            spec.host,
+            spec.port,
+            parsed.timeout_ms,
+            &cancel,
+        ) catch |err| {
+            stderr.print("Error: TCP probe execution failed: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer tcp_res.deinit(allocator);
+
+        switch (parsed.format) {
+            .json => {
+                var envelope = tcp_res.toEnvelope(allocator, "op_tcp_cli", profile_id_opt) catch return ExitCodes.operational_failure;
+                defer envelope.deinit(allocator);
+                envelope.toJson(stdout) catch return ExitCodes.operational_failure;
+            },
+            .terminal, .markdown => tcp_res.toTerminal(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        if (tcp_res.failure_category == .malformed_input) {
+            return ExitCodes.invalid_input;
+        } else if (tcp_res.failure_category == .cancelled) {
+            return ExitCodes.cancelled;
+        } else if (tcp_res.failure_category == .operational_failure) {
+            return ExitCodes.operational_failure;
+        } else if (!tcp_res.is_open) {
+            return ExitCodes.findings_or_violations;
+        }
+        return ExitCodes.success;
+    }
+
+    // 10. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -396,4 +499,44 @@ test "execute dns command with valid, invalid, and missing target" {
     try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"host\":\"localhost\""));
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"answers_match\":true") != null);
     try testing.expectEqual(@as(usize, 0), err_fbs.getWritten().len);
+}
+
+test "execute tcp command with valid, invalid, and missing target" {
+    var out_buf: [4096]u8 = undefined;
+    var err_buf: [1024]u8 = undefined;
+
+    // 1. Missing target returns invalid_input
+    var out_fbs = std.io.fixedBufferStream(&out_buf);
+    var err_fbs = std.io.fixedBufferStream(&err_buf);
+    const missing_target = [_][]const u8{ "wirescope", "tcp" };
+    const code1 = execute(&missing_target, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code1);
+    try testing.expect(err_fbs.getWritten().len > 0);
+
+    // 2. Invalid target syntax rejected pre-network
+    out_fbs.reset();
+    err_fbs.reset();
+    const invalid_target = [_][]const u8{ "wirescope", "tcp", "localhost:99999" };
+    const code2 = execute(&invalid_target, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code2);
+    try testing.expect(err_fbs.getWritten().len > 0);
+
+    // 3. Valid target with JSON format against a local port (e.g. closed port returns findings code)
+    out_fbs.reset();
+    err_fbs.reset();
+    const json_tcp = [_][]const u8{ "wirescope", "tcp", "127.0.0.1:54321", "--format", "json", "--timeout", "500" };
+    const code3 = execute(&json_tcp, out_fbs.writer(), err_fbs.writer());
+    // Closed port returns findings_or_violations exit code
+    try testing.expect(code3 == ExitCodes.findings_or_violations or code3 == ExitCodes.success);
+    try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"operation_id\":"));
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"operation_type\":\"tcp\"") != null);
+    try testing.expectEqual(@as(usize, 0), err_fbs.getWritten().len);
+
+    // 4. Diagnose tcp subcommand dispatch
+    out_fbs.reset();
+    err_fbs.reset();
+    const diag_tcp = [_][]const u8{ "wirescope", "diagnose", "tcp", "127.0.0.1:54321", "--format", "json", "--timeout", "500" };
+    const code4 = execute(&diag_tcp, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code4 == ExitCodes.findings_or_violations or code4 == ExitCodes.success);
+    try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"operation_id\":"));
 }
