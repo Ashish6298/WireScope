@@ -67,6 +67,7 @@ pub const ParseError = error{
     InvalidFormat,
     InvalidRedirectLimit,
     InvalidResponseSize,
+    InvalidCapValue,
     UnknownOption,
 };
 
@@ -93,6 +94,15 @@ pub const ParsedCli = struct {
     dry_run: bool = false,
     show_help: bool = false,
     show_version: bool = false,
+
+    // Phase 8.1 reconnaissance options
+    ports: ?[]const u8 = null,
+    exclusions: ?[]const u8 = null,
+    confirm_authorized: bool = false,
+    preview: bool = false,
+    max_hosts: usize = 256,
+    max_ports: usize = 100,
+    max_operations: usize = 5000,
 };
 
 pub fn parse(args: []const []const u8) ParseError!ParsedCli {
@@ -187,6 +197,39 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
             result.max_response_bytes = parsed_s;
         } else if (std.mem.eql(u8, arg, "--allow-redirect-scope-expansion") or std.mem.eql(u8, arg, "--allow-out-of-scope-redirects")) {
             result.allow_redirect_scope_expansion = true;
+        } else if (std.mem.eql(u8, arg, "--ports")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            result.ports = args[i];
+        } else if (std.mem.eql(u8, arg, "--exclude") or std.mem.eql(u8, arg, "--exclusions")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            result.exclusions = args[i];
+        } else if (std.mem.eql(u8, arg, "--confirm-authorized")) {
+            result.confirm_authorized = true;
+        } else if (std.mem.eql(u8, arg, "--preview")) {
+            result.preview = true;
+        } else if (std.mem.eql(u8, arg, "--max-hosts")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            const h_str = args[i];
+            const parsed_h = std.fmt.parseInt(usize, h_str, 10) catch return error.InvalidCapValue;
+            if (parsed_h == 0) return error.InvalidCapValue;
+            result.max_hosts = parsed_h;
+        } else if (std.mem.eql(u8, arg, "--max-ports")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            const p_str = args[i];
+            const parsed_p = std.fmt.parseInt(usize, p_str, 10) catch return error.InvalidCapValue;
+            if (parsed_p == 0) return error.InvalidCapValue;
+            result.max_ports = parsed_p;
+        } else if (std.mem.eql(u8, arg, "--max-operations") or std.mem.eql(u8, arg, "--max-ops")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            const op_str = args[i];
+            const parsed_op = std.fmt.parseInt(usize, op_str, 10) catch return error.InvalidCapValue;
+            if (parsed_op == 0) return error.InvalidCapValue;
+            result.max_operations = parsed_op;
         } else if (std.mem.startsWith(u8, arg, "-")) {
             return error.UnknownOption;
         } else {
@@ -226,6 +269,12 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
     }
     if (result.command == .https and result.target == null) {
         result.target = result.subcommand;
+    }
+    if (result.command == .discover and result.target == null) {
+        result.target = result.subcommand;
+    }
+    if (result.dry_run) {
+        result.preview = true;
     }
 
     return result;
@@ -342,4 +391,27 @@ test "parse https command and flags" {
 
     const bad_size = [_][]const u8{ "wirescope", "https", "https://example.com", "--max-response-size", "0" };
     try testing.expectError(error.InvalidResponseSize, parse(&bad_size));
+}
+
+test "parse discover command and reconnaissance flags" {
+    const args1 = [_][]const u8{
+        "wirescope",        "discover",
+        "192.168.1.0/24",   "--ports",
+        "80,443,8080-8085", "--exclude",
+        "192.168.1.1",      "--confirm-authorized",
+        "--preview",        "--max-hosts",
+        "500",              "--max-ports",
+        "50",               "--max-operations",
+        "2000",
+    };
+    const parsed1 = try parse(&args1);
+    try testing.expectEqual(Command.discover, parsed1.command);
+    try testing.expectEqualStrings("192.168.1.0/24", parsed1.target.?);
+    try testing.expectEqualStrings("80,443,8080-8085", parsed1.ports.?);
+    try testing.expectEqualStrings("192.168.1.1", parsed1.exclusions.?);
+    try testing.expect(parsed1.confirm_authorized);
+    try testing.expect(parsed1.preview);
+    try testing.expectEqual(@as(usize, 500), parsed1.max_hosts);
+    try testing.expectEqual(@as(usize, 50), parsed1.max_ports);
+    try testing.expectEqual(@as(usize, 2000), parsed1.max_operations);
 }

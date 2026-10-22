@@ -43,6 +43,9 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
             error.InvalidResponseSize => {
                 stderr.print("Error: Invalid response size limit. Must be an integer between 1 and 104857600 bytes.\n", .{}) catch {};
             },
+            error.InvalidCapValue => {
+                stderr.print("Error: Invalid cap value. Caps must be positive integers.\n", .{}) catch {};
+            },
             error.UnknownOption => {
                 stderr.print("Error: Unrecognized option flag.\nRun 'wirescope --help' for usage.\n", .{}) catch {};
             },
@@ -567,6 +570,100 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
+    // 11. Reconnaissance / Asset Discovery Scope Preview and Execution Dispatch
+    if (parsed.command == .discover) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        const raw_target = parsed.target orelse parsed.subcommand orelse {
+            stderr.print("Error: Target specification required for discovery. Usage: wirescope discover <target|cidr> [options]\n", .{}) catch {};
+            return ExitCodes.invalid_input;
+        };
+
+        // Split comma-separated targets if present
+        var target_list = std.ArrayList([]const u8).init(allocator);
+        defer target_list.deinit();
+        var t_it = std.mem.splitScalar(u8, raw_target, ',');
+        while (t_it.next()) |item| {
+            const trimmed = std.mem.trim(u8, item, " \t\r\n");
+            if (trimmed.len > 0) {
+                target_list.append(trimmed) catch return ExitCodes.operational_failure;
+            }
+        }
+
+        if (target_list.items.len == 0) {
+            stderr.print("Error: Target specification is empty.\n", .{}) catch {};
+            return ExitCodes.invalid_input;
+        }
+
+        // Parse exclusions if provided
+        var exclusion_list = std.ArrayList([]const u8).init(allocator);
+        defer exclusion_list.deinit();
+        if (parsed.exclusions) |raw_ex| {
+            var ex_it = std.mem.splitScalar(u8, raw_ex, ',');
+            while (ex_it.next()) |item| {
+                const trimmed = std.mem.trim(u8, item, " \t\r\n");
+                if (trimmed.len > 0) {
+                    exclusion_list.append(trimmed) catch return ExitCodes.operational_failure;
+                }
+            }
+        }
+
+        // Parse ports if provided
+        var port_slice: []u16 = &.{};
+        if (parsed.ports) |raw_p| {
+            port_slice = wirescope.recon.parsePortSpec(allocator, raw_p, parsed.max_ports) catch |err| {
+                var err_buf: [256]u8 = undefined;
+                const err_msg = wirescope.recon.explainScopeError(err, raw_p, &err_buf);
+                stderr.print("Error: {s}\n", .{err_msg}) catch {};
+                return ExitCodes.invalid_input;
+            };
+        }
+        defer if (port_slice.len > 0) allocator.free(port_slice);
+
+        const caps = wirescope.recon.ScopeCaps{
+            .max_hosts = parsed.max_hosts,
+            .max_ports = parsed.max_ports,
+            .max_operations = parsed.max_operations,
+        };
+
+        var plan = wirescope.recon.AssessmentPlan.create(allocator, .{
+            .targets = target_list.items,
+            .exclusions = exclusion_list.items,
+            .ports = port_slice,
+            .confirm_authorized = parsed.confirm_authorized,
+            .caps = caps,
+        }) catch |err| {
+            var err_buf: [256]u8 = undefined;
+            if (err == error.ExcessiveOperationCount or
+                err == error.ExcessiveHostCount or
+                err == error.ExcessivePortCount or
+                err == error.ExcessiveCidrRange or
+                err == error.MissingAuthorizationAcknowledgement or
+                err == error.MalformedHostname or
+                err == error.MalformedIpAddress or
+                err == error.MalformedCidr or
+                err == error.EmptyTargets or
+                err == error.AllTargetsExcluded)
+            {
+                const msg = wirescope.recon.explainScopeError(err, raw_target, &err_buf);
+                stderr.print("Error: {s}\n", .{msg}) catch {};
+            } else {
+                stderr.print("Error: Scope plan creation failed ({s})\n", .{@errorName(err)}) catch {};
+            }
+            return ExitCodes.invalid_input;
+        };
+        defer plan.deinit(allocator);
+
+        switch (parsed.format) {
+            .json => plan.toJson(stdout) catch return ExitCodes.operational_failure,
+            .terminal, .markdown => plan.toTerminal(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        return ExitCodes.success;
+    }
+
     // 12. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
@@ -840,4 +937,60 @@ test "execute https command with missing target, help, and probe output" {
     try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"operation_id\":"));
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"operation_type\":\"http\"") != null);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"status_code\":200") != null);
+}
+
+test "execute discover command with preview, caps, remote authorization, and exclusions" {
+    var out_buf: [16384]u8 = undefined;
+    var err_buf: [2048]u8 = undefined;
+    var out_fbs = std.io.fixedBufferStream(&out_buf);
+    var err_fbs = std.io.fixedBufferStream(&err_buf);
+
+    // 1. Loopback discovery preview (terminal)
+    const loopback_cmd = [_][]const u8{ "wirescope", "discover", "127.0.0.1", "--ports", "80,443", "--preview" };
+    const code1 = execute(&loopback_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code1);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WireScope Assessment Plan Preview") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Planned Execution Tasks") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WireScope cannot verify legal permission") != null);
+
+    // 2. Loopback discovery preview (JSON)
+    out_fbs.reset();
+    err_fbs.reset();
+    const json_cmd = [_][]const u8{ "wirescope", "discover", "127.0.0.1", "--ports", "80", "--format", "json" };
+    const code2 = execute(&json_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code2);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"type\":\"assessment_plan_preview\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"is_loopback_only\":true") != null);
+
+    // 3. Remote target without authorization acknowledgement is rejected
+    out_fbs.reset();
+    err_fbs.reset();
+    const unauth_cmd = [_][]const u8{ "wirescope", "discover", "192.168.1.50", "--ports", "80" };
+    const code3 = execute(&unauth_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code3);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "requires explicit authorization acknowledgement") != null);
+
+    // 4. Remote target with authorization acknowledgement succeeds
+    out_fbs.reset();
+    err_fbs.reset();
+    const auth_cmd = [_][]const u8{ "wirescope", "discover", "192.168.1.50", "--ports", "80", "--confirm-authorized" };
+    const code4 = execute(&auth_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code4);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Scope Status:       Authorized") != null);
+
+    // 5. Broad CIDR (< /24) rejected by safety gate
+    out_fbs.reset();
+    err_fbs.reset();
+    const broad_cidr = [_][]const u8{ "wirescope", "discover", "10.0.0.0/16", "--confirm-authorized" };
+    const code5 = execute(&broad_cidr, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code5);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "/24 to /32") != null);
+
+    // 6. Exclusions filter eliminating all targets
+    out_fbs.reset();
+    err_fbs.reset();
+    const excluded_all = [_][]const u8{ "wirescope", "discover", "127.0.0.1", "--exclude", "127.0.0.1" };
+    const code6 = execute(&excluded_all, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code6);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "All targets were eliminated by the exclusion list") != null);
 }
