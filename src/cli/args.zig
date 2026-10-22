@@ -24,6 +24,7 @@ pub const Command = enum {
     listeners,
     dns,
     tcp,
+    tls,
     diagnose,
     audit,
     discover,
@@ -43,6 +44,7 @@ pub const Command = enum {
         if (std.mem.eql(u8, str, "listeners") or std.mem.eql(u8, str, "listener") or std.mem.eql(u8, str, "ports")) return .listeners;
         if (std.mem.eql(u8, str, "dns") or std.mem.eql(u8, str, "resolve")) return .dns;
         if (std.mem.eql(u8, str, "tcp") or std.mem.eql(u8, str, "connect") or std.mem.eql(u8, str, "latency")) return .tcp;
+        if (std.mem.eql(u8, str, "tls") or std.mem.eql(u8, str, "ssl")) return .tls;
         if (std.mem.eql(u8, str, "diagnose")) return .diagnose;
         if (std.mem.eql(u8, str, "audit")) return .audit;
         if (std.mem.eql(u8, str, "discover")) return .discover;
@@ -77,6 +79,9 @@ pub const ParsedCli = struct {
     config_path: ?[]const u8 = null,
     profile_path: ?[]const u8 = null,
     resolvers: ?[]const u8 = null,
+    ca_bundle_path: ?[]const u8 = null,
+    insecure: bool = false,
+    server_name: ?[]const u8 = null,
     non_interactive: bool = false,
     dry_run: bool = false,
     show_help: bool = false,
@@ -149,6 +154,16 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
             i += 1;
             if (i >= args.len) return error.MissingOptionValue;
             result.resolvers = args[i];
+        } else if (std.mem.eql(u8, arg, "--ca-bundle") or std.mem.eql(u8, arg, "--ca")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            result.ca_bundle_path = args[i];
+        } else if (std.mem.eql(u8, arg, "--insecure") or std.mem.eql(u8, arg, "--insecure-skip-verify") or std.mem.eql(u8, arg, "-k")) {
+            result.insecure = true;
+        } else if (std.mem.eql(u8, arg, "--server-name") or std.mem.eql(u8, arg, "--sni")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            result.server_name = args[i];
         } else if (std.mem.startsWith(u8, arg, "-")) {
             return error.UnknownOption;
         } else {
@@ -181,6 +196,9 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
         result.target = result.subcommand;
     }
     if (result.command == .tcp and result.target == null) {
+        result.target = result.subcommand;
+    }
+    if (result.command == .tls and result.target == null) {
         result.target = result.subcommand;
     }
 
@@ -265,4 +283,21 @@ test "parse rejects invalid timeout and format" {
 
     const bad_flag = [_][]const u8{ "wirescope", "--nonexistent-flag" };
     try testing.expectError(error.UnknownOption, parse(&bad_flag));
+}
+
+test "parse tls command and flags" {
+    const args1 = [_][]const u8{ "wirescope", "tls", "example.com:443", "--insecure", "--ca-bundle", "ca.pem", "--server-name", "sni.example.com" };
+    const parsed1 = try parse(&args1);
+    try testing.expectEqual(Command.tls, parsed1.command);
+    try testing.expectEqualStrings("example.com:443", parsed1.target.?);
+    try testing.expect(parsed1.insecure);
+    try testing.expectEqualStrings("ca.pem", parsed1.ca_bundle_path.?);
+    try testing.expectEqualStrings("sni.example.com", parsed1.server_name.?);
+
+    const args2 = [_][]const u8{ "wirescope", "diagnose", "tls", "example.com" };
+    const parsed2 = try parse(&args2);
+    try testing.expectEqual(Command.diagnose, parsed2.command);
+    try testing.expectEqualStrings("tls", parsed2.subcommand.?);
+    try testing.expectEqualStrings("example.com", parsed2.target.?);
+    try testing.expect(!parsed2.insecure);
 }

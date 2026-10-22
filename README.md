@@ -73,7 +73,9 @@ Current Development Branch: `ashish`
 | ↳ Phase 6.1 | Implement TCP connectivity probes | **COMPLETED** |
 | ↳ Phase 6.2 | Add repeated measurements and statistical summaries | **COMPLETED** |
 | ↳ Phase 6.3 | Provide actionable connectivity troubleshooting | **COMPLETED** |
-| **Milestone 7** | TLS and HTTPS Diagnostics | Pending |
+| **Milestone 7** | **TLS and HTTPS Diagnostics** | **IN PROGRESS** |
+| ↳ Phase 7.1 | Implement certificate-chain and hostname validation | **COMPLETED** |
+| ↳ Phase 7.2 | Add HTTPS timing and bounded response handling | Pending |
 | **Milestone 8** | Authorized Reconnaissance | Pending |
 | **Milestone 9** | Defensive Security Auditors | Pending |
 | **Milestone 10** | Assessment Orchestration, Policies, and Baselines | Pending |
@@ -103,6 +105,7 @@ Current Development Branch: `ashish`
 - [ADR 0014: TCP Connectivity Probes and Lifecycle](docs/decisions/0014-tcp-connectivity-probes.md)
 - [ADR 0015: TCP Repeated Measurements and Statistical Summaries](docs/decisions/0015-tcp-repeated-measurements-and-statistics.md)
 - [ADR 0016: Actionable Connectivity Troubleshooting](docs/decisions/0016-actionable-connectivity-troubleshooting.md)
+- [ADR 0017: TLS Certificate-Chain and Hostname Validation](docs/decisions/0017-tls-certificate-and-hostname-validation.md)
 
 ---
 

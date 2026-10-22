@@ -55,6 +55,21 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
             \\  routes                  Inspect local routing table and default gateway
             \\
         , .{});
+    } else if (std.mem.eql(u8, cmd, "tls")) {
+        try writer.print(
+            \\wirescope tls — TLS Certificate & Hostname Validation Probe
+            \\
+            \\Usage:
+            \\  wirescope tls <target> [port] [options]
+            \\
+            \\Options:
+            \\  --ca-bundle <path>      Custom trusted Certificate Authority (CA) bundle PEM file
+            \\  --insecure              Explicitly bypass certificate chain and hostname verification
+            \\  --server-name <sni>     Override Server Name Indication (SNI)
+            \\  -t, --timeout <ms>      Handshake timeout in milliseconds (default: 5000)
+            \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\
+        , .{});
     } else if (std.mem.eql(u8, cmd, "audit")) {
         try writer.print(
             \\wirescope audit — Defensive Security Configuration Audits

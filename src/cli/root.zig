@@ -395,7 +395,102 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 10. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 10. TLS Connectivity & Certificate Validation Probe dispatch
+    const is_tls_cmd = (parsed.command == .tls) or
+        (parsed.command == .diagnose and parsed.subcommand != null and (std.mem.eql(u8, parsed.subcommand.?, "tls") or std.mem.eql(u8, parsed.subcommand.?, "ssl") or std.mem.eql(u8, parsed.subcommand.?, "cert")));
+
+    if (is_tls_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var raw_target_opt: ?[]const u8 = null;
+        var default_port: ?u16 = null;
+
+        if (parsed.command == .tls) {
+            if (parsed.subcommand) |sub| {
+                if (parsed.target) |tgt| {
+                    if (std.mem.indexOfScalar(u8, sub, ':') == null) {
+                        // "wirescope tls localhost 443"
+                        raw_target_opt = sub;
+                        const p_num = std.fmt.parseInt(u32, tgt, 10) catch {
+                            stderr.print("Error: Invalid port '{s}'. Must be an integer between 1 and 65535.\n", .{tgt}) catch {};
+                            return ExitCodes.invalid_input;
+                        };
+                        default_port = wirescope.probes.validatePort(p_num) catch {
+                            stderr.print("Error: Port {d} out of range (1-65535).\n", .{p_num}) catch {};
+                            return ExitCodes.invalid_input;
+                        };
+                    } else {
+                        raw_target_opt = sub;
+                    }
+                } else {
+                    raw_target_opt = sub;
+                }
+            } else {
+                raw_target_opt = parsed.target;
+            }
+        } else {
+            // "wirescope diagnose tls <target> [port]"
+            if (parsed.target) |tgt| {
+                raw_target_opt = tgt;
+            }
+        }
+
+        const raw_target = raw_target_opt orelse {
+            stderr.print("Error: Target specification required for TLS probe. Usage: wirescope tls <host[:port]>\n", .{}) catch {};
+            return ExitCodes.invalid_input;
+        };
+
+        const config = wirescope.probes.TlsConfig{
+            .timeout_ms = parsed.timeout_ms,
+            .verify_certificates = !parsed.insecure,
+            .insecure_skip_verify = parsed.insecure,
+            .custom_ca_path = parsed.ca_bundle_path,
+            .server_name = parsed.server_name,
+        };
+
+        var real_connector = wirescope.probes.RealTlsConnector{};
+        const connector = real_connector.connector();
+        var cancel = wirescope.probes.CancellationToken{};
+        const now_sec = std.time.timestamp();
+
+        var tls_res = wirescope.probes.executeTlsProbe(
+            allocator,
+            raw_target,
+            default_port,
+            config,
+            connector,
+            &cancel,
+            now_sec,
+        ) catch |err| {
+            stderr.print("Error: TLS probe execution failed: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer tls_res.deinit(allocator);
+
+        switch (parsed.format) {
+            .json => {
+                var envelope = tls_res.toEnvelope(allocator, "op_tls_cli", null) catch return ExitCodes.operational_failure;
+                defer envelope.deinit(allocator);
+                envelope.toJson(stdout) catch return ExitCodes.operational_failure;
+            },
+            .terminal, .markdown => tls_res.toTerminal(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        if (tls_res.failure_category == .malformed_input) {
+            return ExitCodes.invalid_input;
+        } else if (tls_res.failure_category == .cancelled) {
+            return ExitCodes.cancelled;
+        } else if (tls_res.failure_category == .inability_to_verify or tls_res.failure_category == .operational_failure or tls_res.failure_category == .tcp_connection_failed) {
+            return ExitCodes.operational_failure;
+        } else if (tls_res.failure_category != .success) {
+            return ExitCodes.findings_or_violations;
+        }
+        return ExitCodes.success;
+    }
+
+    // 11. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -608,4 +703,33 @@ test "execute tcp repeated measurements with count and interval" {
     try testing.expect(code2 == ExitCodes.findings_or_violations or code2 == ExitCodes.success);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "STATISTICAL SUMMARY") != null);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Packets/Samples") != null);
+}
+
+test "execute tls command with missing target and invalid port" {
+    var out_buf: [16384]u8 = undefined;
+    var err_buf: [1024]u8 = undefined;
+
+    // 1. Missing target
+    var out_fbs = std.io.fixedBufferStream(&out_buf);
+    var err_fbs = std.io.fixedBufferStream(&err_buf);
+    const missing_target = [_][]const u8{ "wirescope", "tls" };
+    const code1 = execute(&missing_target, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code1);
+    try testing.expect(err_fbs.getWritten().len > 0);
+
+    // 2. Invalid port
+    out_fbs.reset();
+    err_fbs.reset();
+    const invalid_port = [_][]const u8{ "wirescope", "tls", "localhost", "99999" };
+    const code2 = execute(&invalid_port, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code2);
+    try testing.expect(err_fbs.getWritten().len > 0);
+
+    // 3. Diagnose tls help
+    out_fbs.reset();
+    err_fbs.reset();
+    const help_tls = [_][]const u8{ "wirescope", "help", "tls" };
+    const code3 = execute(&help_tls, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code3);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "wirescope tls") != null);
 }
