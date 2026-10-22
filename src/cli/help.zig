@@ -14,6 +14,7 @@ pub fn printRootHelp(writer: anytype) !void {
         \\  discover      Perform bounded asset discovery within explicit scope
         \\  baseline      Manage and compare baseline state snapshots
         \\  policy        Evaluate local security rules and exposure policies
+        \\  history       Query, inspect, compare, and prune assessment history
         \\  lab           Execute reproducible local practice lab scenarios
         \\  capabilities  Inspect platform capabilities and supported features
         \\  version       Display WireScope version and compiler information
@@ -176,6 +177,25 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
             \\  --confirm-authorized    Explicitly acknowledge authorization for remote targets
             \\  --preview, --dry-run    Preview planned execution tasks without network activity
             \\  -t, --timeout <ms>      Per-operation probe timeout in milliseconds
+            \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\
+        , .{});
+    } else if (std.mem.eql(u8, cmd, "history")) {
+        try writer.print(
+            \\wirescope history — Assessment History Queries, Retention & Recovery
+            \\
+            \\Usage:
+            \\  wirescope history <action> [target] [options]
+            \\
+            \\Actions:
+            \\  list                    List historical assessment runs (default)
+            \\  inspect <id>            Inspect a specific assessment record
+            \\  compare <id1> <id2>     Compare two historical assessment runs
+            \\  delete <id>             Delete an assessment record safely
+            \\  prune                   Prune oldest assessment records according to retention policy
+            \\  recover                 Recover from interrupted writes and clean up orphaned temporary files
+            \\
+            \\Options:
             \\  -f, --format <format>   Output format: terminal, json, markdown
             \\
         , .{});

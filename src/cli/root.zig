@@ -1108,7 +1108,179 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 18. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 18. Local History Queries, Retention & Recovery dispatch (Milestone 11 Phase 11.2)
+    if (parsed.command == .history) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        const data_dir = wirescope.storage.resolveDefaultDataDir(allocator) catch ".wirescope";
+        defer allocator.free(data_dir);
+
+        var mgr = wirescope.storage.HistoryManager.init(allocator, data_dir) catch return ExitCodes.operational_failure;
+
+        const action = if (parsed.subcommand) |s| s else "list";
+
+        if (std.mem.eql(u8, action, "list")) {
+            const entries = mgr.listHistory() catch return ExitCodes.operational_failure;
+            defer {
+                for (entries) |*e| e.deinit(allocator);
+                allocator.free(entries);
+            }
+
+            switch (parsed.format) {
+                .terminal => {
+                    stdout.print(
+                        \\================================================================================
+                        \\WIRESCOPE HISTORICAL ASSESSMENTS
+                        \\================================================================================
+                        \\Total Historical Runs: {d}
+                        \\
+                        \\  Assessment ID        Status       Duration   Succeeded Failed Findings Created
+                        \\  --------------------------------------------------------------------------------
+                        \\
+                    , .{entries.len}) catch return ExitCodes.operational_failure;
+
+                    for (entries) |e| {
+                        stdout.print("  {s:<20} {s:<12} {d:<10} {d:<9} {d:<6} {d:<8} {d}\n", .{
+                            e.assessment_id,
+                            e.status,
+                            e.duration_ms,
+                            e.tasks_succeeded,
+                            e.tasks_failed,
+                            e.findings_count,
+                            e.created_at_ms,
+                        }) catch return ExitCodes.operational_failure;
+                    }
+                    stdout.print("================================================================================\n", .{}) catch return ExitCodes.operational_failure;
+                },
+                .json => {
+                    stdout.print(
+                        \\{{"report_type":"history_list","schema_version":1,"total_runs":{d},"assessments":[
+                    , .{entries.len}) catch return ExitCodes.operational_failure;
+
+                    for (entries, 0..) |e, idx| {
+                        if (idx > 0) stdout.print(",", .{}) catch return ExitCodes.operational_failure;
+                        stdout.print(
+                            \\{{"assessment_id":"{s}","profile_id":"{s}","status":"{s}","duration_ms":{d},"tasks_succeeded":{d},"tasks_failed":{d},"findings_count":{d},"created_at_ms":{d}}}
+                        , .{
+                            e.assessment_id,
+                            e.profile_id,
+                            e.status,
+                            e.duration_ms,
+                            e.tasks_succeeded,
+                            e.tasks_failed,
+                            e.findings_count,
+                            e.created_at_ms,
+                        }) catch return ExitCodes.operational_failure;
+                    }
+                    stdout.print("]}}\n", .{}) catch return ExitCodes.operational_failure;
+                },
+                .markdown => {
+                    stdout.print(
+                        \\# WireScope Assessment Execution History
+                        \\
+                        \\**Total Historical Runs:** {d}  
+                        \\
+                        \\| Assessment ID | Profile | Status | Succeeded | Failed | Findings |
+                        \\| :--- | :--- | :--- | :---: | :---: | :---: |
+                        \\
+                    , .{entries.len}) catch return ExitCodes.operational_failure;
+
+                    for (entries) |e| {
+                        stdout.print("| `{s}` | `{s}` | `{s}` | {d} | {d} | {d} |\n", .{
+                            e.assessment_id,
+                            e.profile_id,
+                            e.status,
+                            e.tasks_succeeded,
+                            e.tasks_failed,
+                            e.findings_count,
+                        }) catch return ExitCodes.operational_failure;
+                    }
+                },
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "inspect")) {
+            const target_id = parsed.target orelse {
+                stderr.print("Error: Assessment ID required for inspect. Usage: wirescope history inspect <assessment_id>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            var record = mgr.inspectHistory(target_id) catch |err| {
+                if (err == wirescope.storage.StorageError.PathTraversalEscape) {
+                    stderr.print("Error: Access denied. Path traversal outside WireScope storage is forbidden.\n", .{}) catch {};
+                    return ExitCodes.invalid_input;
+                } else if (err == wirescope.storage.StorageError.RecordNotFound) {
+                    stderr.print("Error: Assessment record '{s}' not found.\n", .{target_id}) catch {};
+                    return ExitCodes.operational_failure;
+                }
+                return ExitCodes.operational_failure;
+            };
+            defer record.deinit(allocator);
+
+            switch (parsed.format) {
+                .terminal => {
+                    stdout.print("Historical Record '{s}' (v{d}, created: {d}):\n{s}\n", .{
+                        record.record_id,
+                        record.schema_version,
+                        record.created_at_ms,
+                        record.payload,
+                    }) catch return ExitCodes.operational_failure;
+                },
+                .json => {
+                    stdout.print("{s}\n", .{record.payload}) catch return ExitCodes.operational_failure;
+                },
+                .markdown => {
+                    stdout.print(
+                        \\# Historical Record `{s}`
+                        \\
+                        \\**Schema Version:** {d}  
+                        \\**Created:** {d}  
+                        \\
+                        \\```json
+                        \\{s}
+                        \\```
+                        \\
+                    , .{
+                        record.record_id,
+                        record.schema_version,
+                        record.created_at_ms,
+                        record.payload,
+                    }) catch return ExitCodes.operational_failure;
+                },
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "delete")) {
+            const target_id = parsed.target orelse {
+                stderr.print("Error: Assessment ID required for delete. Usage: wirescope history delete <assessment_id>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            mgr.deleteHistory(target_id) catch |err| {
+                if (err == wirescope.storage.StorageError.PathTraversalEscape) {
+                    stderr.print("Error: Access denied. Path traversal outside WireScope storage is forbidden.\n", .{}) catch {};
+                    return ExitCodes.invalid_input;
+                } else if (err == wirescope.storage.StorageError.RecordNotFound) {
+                    stderr.print("Error: Assessment record '{s}' not found.\n", .{target_id}) catch {};
+                    return ExitCodes.operational_failure;
+                }
+                return ExitCodes.operational_failure;
+            };
+
+            stdout.print("Assessment history record '{s}' successfully deleted.\n", .{target_id}) catch return ExitCodes.operational_failure;
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "prune")) {
+            const pruned = mgr.applyRetention(.{ .max_records = 50 }) catch return ExitCodes.operational_failure;
+            stdout.print("Retention policy applied: pruned {d} old assessment records.\n", .{pruned}) catch return ExitCodes.operational_failure;
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "recover")) {
+            const cleaned = mgr.recoverInterruptedWrites() catch return ExitCodes.operational_failure;
+            stdout.print("Recovery completed: cleaned up {d} orphaned temporary write files.\n", .{cleaned}) catch return ExitCodes.operational_failure;
+            return ExitCodes.success;
+        }
+    }
+
+    // 19. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -1655,4 +1827,42 @@ test "execute discover command with preview, caps, remote authorization, and exc
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Offline Policy Evaluation Report") != null);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "**COMPLIANT**") != null);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Offline (Zero Network Activity)") != null);
+
+    // 23. Local History Queries, Retention & Recovery Dispatch (Milestone 11 Phase 11.2)
+    out_fbs.reset();
+    err_fbs.reset();
+    const history_list_term = [_][]const u8{ "wirescope", "history", "list" };
+    const code32 = execute(&history_list_term, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code32);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE HISTORICAL ASSESSMENTS") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const history_list_json = [_][]const u8{ "wirescope", "history", "list", "--format", "json" };
+    const code33 = execute(&history_list_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code33);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"report_type\":\"history_list\"") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const history_list_md = [_][]const u8{ "wirescope", "history", "list", "--format", "markdown" };
+    const code34 = execute(&history_list_md, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code34);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Assessment Execution History") != null);
+
+    // Path traversal escape rejected
+    out_fbs.reset();
+    err_fbs.reset();
+    const history_delete_escape = [_][]const u8{ "wirescope", "history", "delete", "../forbidden.json" };
+    const code35 = execute(&history_delete_escape, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code35);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "Access denied") != null);
+
+    // Recovery runs
+    out_fbs.reset();
+    err_fbs.reset();
+    const history_recover = [_][]const u8{ "wirescope", "history", "recover" };
+    const code36 = execute(&history_recover, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code36);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Recovery completed") != null);
 }

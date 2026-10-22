@@ -1,5 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const schema = @import("schema.zig");
+pub const StorageError = schema.StorageError;
 
 /// Storage directory paths manager and resolver
 pub const StoragePaths = struct {
@@ -66,6 +68,24 @@ pub const StoragePaths = struct {
         const m = try self.manifestsDir(allocator);
         defer allocator.free(m);
         try std.fs.cwd().makePath(m);
+    }
+
+    /// Enforces sandbox containment: rejects any path traversal attempting to escape
+    /// the WireScope storage hierarchy (e.g. '../', '..\\', absolute root prefixes).
+    pub fn validateContainedPath(self: StoragePaths, allocator: std.mem.Allocator, sub_dir: []const u8, file_name: []const u8) ![]const u8 {
+        if (file_name.len == 0 or
+            std.mem.indexOf(u8, file_name, "..") != null or
+            std.mem.indexOfScalar(u8, file_name, '/') != null or
+            std.mem.indexOfScalar(u8, file_name, '\\') != null or
+            std.mem.indexOfScalar(u8, file_name, ':') != null)
+        {
+            return StorageError.PathTraversalEscape;
+        }
+
+        const full_sub_dir = try std.fs.path.join(allocator, &[_][]const u8{ self.base_dir, sub_dir });
+        defer allocator.free(full_sub_dir);
+
+        return try std.fs.path.join(allocator, &[_][]const u8{ full_sub_dir, file_name });
     }
 };
 

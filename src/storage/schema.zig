@@ -12,6 +12,7 @@ pub const StorageError = error{
     MigrationFailed,
     WriteFailed,
     IoError,
+    PathTraversalEscape,
     OutOfMemory,
 };
 
