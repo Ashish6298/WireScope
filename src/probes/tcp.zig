@@ -750,6 +750,13 @@ pub const MockTcpConnector = struct {
     mock_outcome: TcpFailureCategory = .success,
     simulated_latency_ns: u64 = 1500000,
     resolved_ip: []const u8 = "127.0.0.1",
+    sequence: ?[]const MockSample = null,
+    sequence_idx: usize = 0,
+
+    pub const MockSample = struct {
+        outcome: TcpFailureCategory,
+        latency_ns: u64,
+    };
 
     fn connect(
         ctx: *anyopaque,
@@ -775,23 +782,35 @@ pub const MockTcpConnector = struct {
             };
         }
 
-        const is_open = (self.mock_outcome == .success);
+        var outcome = self.mock_outcome;
+        var latency = self.simulated_latency_ns;
+
+        if (self.sequence) |seq| {
+            if (seq.len > 0) {
+                const s = seq[self.sequence_idx % seq.len];
+                outcome = s.outcome;
+                latency = s.latency_ns;
+                self.sequence_idx += 1;
+            }
+        }
+
+        const is_open = (outcome == .success);
 
         return TcpProbeResult{
             .host = try allocator.dupe(u8, host),
             .port = port,
             .resolved_ip = try allocator.dupe(u8, self.resolved_ip),
             .is_open = is_open,
-            .failure_category = self.mock_outcome,
-            .elapsed_ns = self.simulated_latency_ns,
-            .connect_time_ns = self.simulated_latency_ns,
+            .failure_category = outcome,
+            .elapsed_ns = latency,
+            .connect_time_ns = latency,
             .dns_time_ns = null,
             .err = if (is_open)
                 StructuredError.none
             else
                 .{
-                    .code = self.mock_outcome.toErrorCode(),
-                    .message = switch (self.mock_outcome) {
+                    .code = outcome.toErrorCode(),
+                    .message = switch (outcome) {
                         .refusal => "Mock connection refused",
                         .timeout => "Mock connection timed out",
                         .permission_denied => "Mock permission denied",
@@ -877,6 +896,419 @@ pub fn executeTcpProbeWithEngine(
     }
 
     return error.TaskDidNotProduceResult;
+}
+
+/// Breakdown of reasons for non-successful probe samples
+pub const FailureBreakdown = struct {
+    refusals: u32 = 0,
+    timeouts: u32 = 0,
+    cancellations: u32 = 0,
+    permission_denied: u32 = 0,
+    network_unreachable: u32 = 0,
+    operational_failures: u32 = 0,
+    malformed_inputs: u32 = 0,
+
+    pub fn recordFailure(self: *FailureBreakdown, cat: TcpFailureCategory) void {
+        switch (cat) {
+            .refusal => self.refusals += 1,
+            .timeout => self.timeouts += 1,
+            .cancelled => self.cancellations += 1,
+            .permission_denied => self.permission_denied += 1,
+            .network_unreachable => self.network_unreachable += 1,
+            .operational_failure => self.operational_failures += 1,
+            .malformed_input => self.malformed_inputs += 1,
+            .success => {},
+        }
+    }
+
+    pub fn totalFailures(self: FailureBreakdown) u32 {
+        return self.refusals + self.timeouts + self.cancellations +
+            self.permission_denied + self.network_unreachable +
+            self.operational_failures + self.malformed_inputs;
+    }
+
+    pub fn toJson(self: FailureBreakdown, writer: anytype) !void {
+        try writer.print(
+            \\{{"refusals":{d},"timeouts":{d},"cancellations":{d},"permission_denied":{d},"network_unreachable":{d},"operational_failures":{d},"malformed_inputs":{d}}}
+        , .{
+            self.refusals,
+            self.timeouts,
+            self.cancellations,
+            self.permission_denied,
+            self.network_unreachable,
+            self.operational_failures,
+            self.malformed_inputs,
+        });
+    }
+};
+
+/// Per-sample record in a repeated measurement sequence
+pub const TcpSampleRecord = struct {
+    sample_index: u32,
+    is_open: bool,
+    failure_category: TcpFailureCategory,
+    connect_time_ns: u64,
+    dns_time_ns: ?u64 = null,
+    elapsed_ns: u64,
+    err: StructuredError = StructuredError.none,
+
+    pub fn toJson(self: TcpSampleRecord, writer: anytype) !void {
+        try writer.print(
+            \\{{"sample_index":{d},"is_open":{s},"status":"{s}","connect_time_ns":{d},
+        , .{
+            self.sample_index,
+            if (self.is_open) "true" else "false",
+            self.failure_category.toSlice(),
+            self.connect_time_ns,
+        });
+
+        if (self.dns_time_ns) |dns_ns| {
+            try writer.print("\"dns_time_ns\":{d},", .{dns_ns});
+        } else {
+            try writer.writeAll("\"dns_time_ns\":null,");
+        }
+
+        try writer.print("\"elapsed_ns\":{d}}}", .{self.elapsed_ns});
+    }
+};
+
+/// Batch measurement result containing individual sample history and statistical aggregations
+pub const TcpBatchProbeResult = struct {
+    host: []const u8,
+    port: u16,
+    resolved_ip: ?[]const u8 = null,
+    requested_count: u32,
+    interval_ms: u32,
+    samples: []TcpSampleRecord,
+    stats: core.LatencyStats,
+    failure_breakdown: FailureBreakdown,
+    is_partial: bool = false,
+
+    pub fn deinit(self: *TcpBatchProbeResult, allocator: std.mem.Allocator) void {
+        allocator.free(self.host);
+        if (self.resolved_ip) |ip| allocator.free(ip);
+        allocator.free(self.samples);
+    }
+
+    pub fn toEnvelope(
+        self: *const TcpBatchProbeResult,
+        allocator: std.mem.Allocator,
+        op_id: []const u8,
+        profile_id: ?[]const u8,
+    ) !OperationEnvelope {
+        const now = std.time.milliTimestamp();
+        const target_str = try std.fmt.allocPrint(allocator, "{s}:{d}", .{ self.host, self.port });
+        errdefer allocator.free(target_str);
+
+        const outcome: OutcomeCategory = if (self.is_partial)
+            .cancelled
+        else if (self.stats.successful_samples > 0)
+            .success
+        else
+            .refusal;
+
+        return OperationEnvelope{
+            .operation_id = try allocator.dupe(u8, op_id),
+            .operation_type = .tcp,
+            .target = target_str,
+            .profile_id = if (profile_id) |p| try allocator.dupe(u8, p) else null,
+            .start_time_ms = now,
+            .end_time_ms = now,
+            .monotonic_elapsed_ns = self.stats.mean_ns orelse 0,
+            .outcome = outcome,
+            .is_partial = self.is_partial,
+            .timing_stages = .{
+                .tcp_connect_ns = self.stats.mean_ns,
+                .total_elapsed_ns = self.stats.mean_ns orelse 0,
+            },
+            .payload = .{
+                .tcp = .{
+                    .port = self.port,
+                    .is_open = (self.stats.successful_samples > 0),
+                    .connect_time_ns = self.stats.mean_ns orelse 0,
+                    .bytes_sent = 0,
+                    .bytes_received = 0,
+                },
+            },
+        };
+    }
+
+    pub fn toTerminal(self: *const TcpBatchProbeResult, writer: anytype) !void {
+        try writer.print("TCP Repeated Connectivity Probes for: {s}:{d}\n", .{ self.host, self.port });
+        if (self.resolved_ip) |ip| {
+            try writer.print("  Destination IP: {s}\n", .{ip});
+        }
+        try writer.print("  Samples Planned: {d} | Interval: {d} ms | Completed: {d}\n", .{
+            self.requested_count,
+            self.interval_ms,
+            self.samples.len,
+        });
+        try writer.writeAll("--------------------------------------------------------------------------------\n");
+        try writer.writeAll(" #   | Status      | Connect Time | Total Elapsed | Details\n");
+        try writer.writeAll("-----+-------------+--------------+---------------+-----------------------------\n");
+
+        for (self.samples) |s| {
+            const status_str = if (s.is_open)
+                "OPEN"
+            else switch (s.failure_category) {
+                .refusal => "REFUSED",
+                .timeout => "TIMED_OUT",
+                .cancelled => "CANCELLED",
+                .permission_denied => "PERM_DENIED",
+                .network_unreachable => "UNREACHABLE",
+                .malformed_input => "INVALID",
+                .operational_failure => "FAILED",
+                .success => "OPEN",
+            };
+
+            const conn_ms: f64 = @as(f64, @floatFromInt(s.connect_time_ns)) / 1_000_000.0;
+            const elap_ms: f64 = @as(f64, @floatFromInt(s.elapsed_ns)) / 1_000_000.0;
+
+            if (s.is_open) {
+                try writer.print("{d:<4} | {s:<11} | {d:>9.2} ms | {d:>10.2} ms |\n", .{
+                    s.sample_index,
+                    status_str,
+                    conn_ms,
+                    elap_ms,
+                });
+            } else {
+                try writer.print("{d:<4} | {s:<11} |         --   | {d:>10.2} ms | {s}\n", .{
+                    s.sample_index,
+                    status_str,
+                    elap_ms,
+                    if (s.err.isError()) s.err.message else s.failure_category.toSlice(),
+                });
+            }
+        }
+
+        try writer.writeAll("--------------------------------------------------------------------------------\n");
+        try writer.writeAll("STATISTICAL SUMMARY (Computed Exclusively from Successful Connects):\n");
+        try writer.print("  Packets/Samples : {d} total, {d} successful, {d} failed ({d:.1}% loss)\n", .{
+            self.stats.total_samples,
+            self.stats.successful_samples,
+            self.stats.failed_samples,
+            self.stats.loss_percent,
+        });
+
+        if (self.stats.successful_samples > 0) {
+            const min_ms: f64 = @as(f64, @floatFromInt(self.stats.min_ns.?)) / 1_000_000.0;
+            const max_ms: f64 = @as(f64, @floatFromInt(self.stats.max_ns.?)) / 1_000_000.0;
+            const mean_ms: f64 = @as(f64, @floatFromInt(self.stats.mean_ns.?)) / 1_000_000.0;
+            const med_ms: f64 = @as(f64, @floatFromInt(self.stats.median_ns.?)) / 1_000_000.0;
+
+            try writer.print("  Round-Trip (TCP): min={d:.2} ms, max={d:.2} ms, mean={d:.2} ms, median={d:.2} ms\n", .{
+                min_ms,
+                max_ms,
+                mean_ms,
+                med_ms,
+            });
+
+            if (self.stats.stddev_ns) |sd| {
+                const sd_ms: f64 = @as(f64, @floatFromInt(sd)) / 1_000_000.0;
+                try writer.print("  Std Deviation   : {d:.2} ms\n", .{sd_ms});
+            }
+
+            if (self.stats.jitter_rfc3550_ns) |j| {
+                const j_ms: f64 = @as(f64, @floatFromInt(j)) / 1_000_000.0;
+                try writer.print("  Jitter (RFC3550): {d:.2} ms (mean absolute successive variation)\n", .{j_ms});
+            } else {
+                try writer.writeAll("  Jitter (RFC3550): n/a (requires >= 2 successful samples)\n");
+            }
+
+            // Percentiles
+            try writer.writeAll("  Percentiles     : ");
+            try writer.print("p50={d:.2} ms", .{med_ms});
+            if (self.stats.percentiles.p75_ns) |p75| {
+                try writer.print(", p75={d:.2} ms", .{@as(f64, @floatFromInt(p75)) / 1_000_000.0});
+            } else {
+                try writer.writeAll(", p75=n/a (<4 samples)");
+            }
+            if (self.stats.percentiles.p90_ns) |p90| {
+                try writer.print(", p90={d:.2} ms", .{@as(f64, @floatFromInt(p90)) / 1_000_000.0});
+            } else {
+                try writer.writeAll(", p90=n/a (<10 samples)");
+            }
+            if (self.stats.percentiles.p95_ns) |p95| {
+                try writer.print(", p95={d:.2} ms", .{@as(f64, @floatFromInt(p95)) / 1_000_000.0});
+            } else {
+                try writer.writeAll(", p95=n/a (<20 samples)");
+            }
+            if (self.stats.percentiles.p99_ns) |p99| {
+                try writer.print(", p99={d:.2} ms", .{@as(f64, @floatFromInt(p99)) / 1_000_000.0});
+            }
+            try writer.writeAll("\n");
+        } else {
+            try writer.writeAll("  Round-Trip (TCP): n/a (all samples failed)\n");
+        }
+
+        if (self.failure_breakdown.totalFailures() > 0) {
+            try writer.writeAll("  Failure Details : ");
+            var f_first = true;
+            if (self.failure_breakdown.refusals > 0) {
+                try writer.print("refused={d}", .{self.failure_breakdown.refusals});
+                f_first = false;
+            }
+            if (self.failure_breakdown.timeouts > 0) {
+                if (!f_first) try writer.writeAll(", ");
+                try writer.print("timeout={d}", .{self.failure_breakdown.timeouts});
+                f_first = false;
+            }
+            if (self.failure_breakdown.network_unreachable > 0) {
+                if (!f_first) try writer.writeAll(", ");
+                try writer.print("unreachable={d}", .{self.failure_breakdown.network_unreachable});
+                f_first = false;
+            }
+            if (self.failure_breakdown.cancellations > 0) {
+                if (!f_first) try writer.writeAll(", ");
+                try writer.print("cancelled={d}", .{self.failure_breakdown.cancellations});
+                f_first = false;
+            }
+            if (self.failure_breakdown.permission_denied > 0) {
+                if (!f_first) try writer.writeAll(", ");
+                try writer.print("permission_denied={d}", .{self.failure_breakdown.permission_denied});
+                f_first = false;
+            }
+            if (self.failure_breakdown.operational_failures > 0) {
+                if (!f_first) try writer.writeAll(", ");
+                try writer.print("operational_failure={d}", .{self.failure_breakdown.operational_failures});
+            }
+            try writer.writeAll("\n");
+        }
+
+        if (self.is_partial) {
+            try writer.writeAll("  Execution Status: PARTIAL (Operation was cancelled before all samples completed)\n");
+        }
+
+        try writer.writeAll("\n  Timing Notice: TCP connect time reflects 3-way SYN/SYN-ACK handshake duration,\n");
+        try writer.writeAll("                 not ICMP echo ping latency.\n\n");
+    }
+
+    pub fn toJson(self: *const TcpBatchProbeResult, writer: anytype) !void {
+        try writer.print(
+            \\{{"host":"{s}","port":{d},"resolved_ip":
+        , .{ self.host, self.port });
+
+        if (self.resolved_ip) |ip| {
+            try writer.print("\"{s}\",", .{ip});
+        } else {
+            try writer.writeAll("null,");
+        }
+
+        try writer.print(
+            \\"requested_count":{d},"interval_ms":{d},"is_partial":{s},"stats":
+        , .{
+            self.requested_count,
+            self.interval_ms,
+            if (self.is_partial) "true" else "false",
+        });
+
+        try self.stats.toJson(writer);
+
+        try writer.writeAll(",\"failure_breakdown\":");
+        try self.failure_breakdown.toJson(writer);
+
+        try writer.writeAll(",\"samples\":[");
+        for (self.samples, 0..) |s, idx| {
+            if (idx > 0) try writer.writeAll(",");
+            try s.toJson(writer);
+        }
+        try writer.writeAll("]}");
+    }
+};
+
+/// Executes bounded repeated TCP connectivity probes with configurable interval and statistical summaries
+pub fn executeTcpBatchProbe(
+    allocator: std.mem.Allocator,
+    connector: TcpConnector,
+    host: []const u8,
+    port: u16,
+    count: u32,
+    interval_ms: u32,
+    timeout_ms: u32,
+    cancel_token: *const CancellationToken,
+) !TcpBatchProbeResult {
+    if (count == 0 or count > 100) return error.InvalidCount;
+    if (interval_ms > 60000) return error.InvalidInterval;
+
+    var samples_list = try std.ArrayList(TcpSampleRecord).initCapacity(allocator, count);
+    errdefer samples_list.deinit();
+
+    var failure_breakdown = FailureBreakdown{};
+    var successful_latencies = try std.ArrayList(u64).initCapacity(allocator, count);
+    defer successful_latencies.deinit();
+
+    var captured_ip: ?[]const u8 = null;
+    errdefer if (captured_ip) |ip| allocator.free(ip);
+
+    var is_partial = false;
+    var i: u32 = 0;
+
+    while (i < count) : (i += 1) {
+        if (cancel_token.isCancelled()) {
+            is_partial = true;
+            break;
+        }
+
+        var sample_res = try connector.connect(
+            allocator,
+            host,
+            port,
+            timeout_ms,
+            cancel_token,
+        );
+        defer sample_res.deinit(allocator);
+
+        if (captured_ip == null and sample_res.resolved_ip != null) {
+            captured_ip = try allocator.dupe(u8, sample_res.resolved_ip.?);
+        }
+
+        const sample_rec = TcpSampleRecord{
+            .sample_index = i + 1,
+            .is_open = sample_res.is_open,
+            .failure_category = sample_res.failure_category,
+            .connect_time_ns = sample_res.connect_time_ns,
+            .dns_time_ns = sample_res.dns_time_ns,
+            .elapsed_ns = sample_res.elapsed_ns,
+            .err = sample_res.err,
+        };
+
+        try samples_list.append(sample_rec);
+
+        if (sample_res.is_open) {
+            try successful_latencies.append(sample_res.connect_time_ns);
+        } else {
+            failure_breakdown.recordFailure(sample_res.failure_category);
+        }
+
+        if (i + 1 < count and interval_ms > 0) {
+            var remaining_ms = interval_ms;
+            while (remaining_ms > 0) {
+                if (cancel_token.isCancelled()) {
+                    is_partial = true;
+                    break;
+                }
+                const step = @min(remaining_ms, 20);
+                std.time.sleep(@as(u64, step) * std.time.ns_per_ms);
+                remaining_ms -= step;
+            }
+            if (is_partial) break;
+        }
+    }
+
+    const total_attempted = @as(u32, @intCast(samples_list.items.len));
+    const stats = try core.LatencyStats.calculate(allocator, successful_latencies.items, total_attempted);
+
+    return TcpBatchProbeResult{
+        .host = try allocator.dupe(u8, host),
+        .port = port,
+        .resolved_ip = captured_ip,
+        .requested_count = count,
+        .interval_ms = interval_ms,
+        .samples = try samples_list.toOwnedSlice(),
+        .stats = stats,
+        .failure_breakdown = failure_breakdown,
+        .is_partial = is_partial,
+    };
 }
 
 // ============================================================================
@@ -1116,4 +1548,201 @@ test "real socket connector handles malformed host syntax" {
     try testing.expect(!res.is_open);
     try testing.expectEqual(TcpFailureCategory.malformed_input, res.failure_category);
     try testing.expectEqual(OutcomeCategory.invalid_input, res.failure_category.toOutcome());
+}
+
+test "tcp batch probe: all successful samples with statistics and jitter" {
+    const seq = [_]MockTcpConnector.MockSample{
+        .{ .outcome = .success, .latency_ns = 10_000_000 },
+        .{ .outcome = .success, .latency_ns = 12_000_000 },
+        .{ .outcome = .success, .latency_ns = 14_000_000 },
+        .{ .outcome = .success, .latency_ns = 16_000_000 },
+    };
+    var mock = MockTcpConnector{ .sequence = &seq };
+    const cancel = CancellationToken.init();
+
+    var batch = try executeTcpBatchProbe(
+        testing.allocator,
+        mock.connector(),
+        "127.0.0.1",
+        80,
+        4,
+        0,
+        1000,
+        &cancel,
+    );
+    defer batch.deinit(testing.allocator);
+
+    try testing.expectEqual(@as(usize, 4), batch.samples.len);
+    try testing.expectEqual(@as(u32, 4), batch.stats.total_samples);
+    try testing.expectEqual(@as(u32, 4), batch.stats.successful_samples);
+    try testing.expectEqual(@as(u32, 0), batch.stats.failed_samples);
+    try testing.expectEqual(@as(f64, 0.0), batch.stats.loss_percent);
+
+    try testing.expectEqual(@as(?u64, 10_000_000), batch.stats.min_ns);
+    try testing.expectEqual(@as(?u64, 16_000_000), batch.stats.max_ns);
+    try testing.expectEqual(@as(?u64, 13_000_000), batch.stats.mean_ns);
+    try testing.expectEqual(@as(?u64, 13_000_000), batch.stats.median_ns);
+    try testing.expectEqual(@as(?u64, 2_000_000), batch.stats.jitter_rfc3550_ns);
+    try testing.expect(batch.stats.percentiles.p75_ns != null);
+    try testing.expect(!batch.is_partial);
+}
+
+test "tcp batch probe: mixed success and refusal samples" {
+    const seq = [_]MockTcpConnector.MockSample{
+        .{ .outcome = .success, .latency_ns = 10_000_000 },
+        .{ .outcome = .refusal, .latency_ns = 500_000 },
+        .{ .outcome = .success, .latency_ns = 20_000_000 },
+        .{ .outcome = .refusal, .latency_ns = 600_000 },
+    };
+    var mock = MockTcpConnector{ .sequence = &seq };
+    const cancel = CancellationToken.init();
+
+    var batch = try executeTcpBatchProbe(
+        testing.allocator,
+        mock.connector(),
+        "127.0.0.1",
+        80,
+        4,
+        0,
+        1000,
+        &cancel,
+    );
+    defer batch.deinit(testing.allocator);
+
+    try testing.expectEqual(@as(u32, 4), batch.stats.total_samples);
+    try testing.expectEqual(@as(u32, 2), batch.stats.successful_samples);
+    try testing.expectEqual(@as(u32, 2), batch.stats.failed_samples);
+    try testing.expectEqual(@as(f64, 50.0), batch.stats.loss_percent);
+    try testing.expectEqual(@as(u32, 2), batch.failure_breakdown.refusals);
+
+    // Latency stats computed strictly on the 2 successful samples (10ms, 20ms)
+    try testing.expectEqual(@as(?u64, 10_000_000), batch.stats.min_ns);
+    try testing.expectEqual(@as(?u64, 20_000_000), batch.stats.max_ns);
+    try testing.expectEqual(@as(?u64, 15_000_000), batch.stats.mean_ns);
+    try testing.expectEqual(@as(?u64, 15_000_000), batch.stats.median_ns);
+    try testing.expectEqual(@as(?u64, 10_000_000), batch.stats.jitter_rfc3550_ns);
+}
+
+test "tcp batch probe: all failed samples (100% loss)" {
+    var mock = MockTcpConnector{ .mock_outcome = .timeout };
+    const cancel = CancellationToken.init();
+
+    var batch = try executeTcpBatchProbe(
+        testing.allocator,
+        mock.connector(),
+        "127.0.0.1",
+        80,
+        3,
+        0,
+        1000,
+        &cancel,
+    );
+    defer batch.deinit(testing.allocator);
+
+    try testing.expectEqual(@as(u32, 3), batch.stats.total_samples);
+    try testing.expectEqual(@as(u32, 0), batch.stats.successful_samples);
+    try testing.expectEqual(@as(u32, 3), batch.stats.failed_samples);
+    try testing.expectEqual(@as(f64, 100.0), batch.stats.loss_percent);
+    try testing.expectEqual(@as(u32, 3), batch.failure_breakdown.timeouts);
+    try testing.expect(batch.stats.min_ns == null);
+    try testing.expect(batch.stats.mean_ns == null);
+}
+
+test "tcp batch probe: cancellation terminates early" {
+    var cancel = CancellationToken.init();
+    cancel.cancel(); // Pre-cancelled
+
+    var mock = MockTcpConnector{ .mock_outcome = .success };
+    var batch = try executeTcpBatchProbe(
+        testing.allocator,
+        mock.connector(),
+        "127.0.0.1",
+        80,
+        5,
+        0,
+        1000,
+        &cancel,
+    );
+    defer batch.deinit(testing.allocator);
+
+    try testing.expect(batch.is_partial);
+    try testing.expectEqual(@as(usize, 0), batch.samples.len);
+}
+
+test "tcp batch probe: bounds validation on count and interval" {
+    var mock = MockTcpConnector{};
+    const cancel = CancellationToken.init();
+
+    // Count = 0
+    try testing.expectError(error.InvalidCount, executeTcpBatchProbe(
+        testing.allocator,
+        mock.connector(),
+        "127.0.0.1",
+        80,
+        0,
+        10,
+        1000,
+        &cancel,
+    ));
+
+    // Count = 101 (>100 limit)
+    try testing.expectError(error.InvalidCount, executeTcpBatchProbe(
+        testing.allocator,
+        mock.connector(),
+        "127.0.0.1",
+        80,
+        101,
+        10,
+        1000,
+        &cancel,
+    ));
+
+    // Interval = 70000 (>60000 ms limit)
+    try testing.expectError(error.InvalidInterval, executeTcpBatchProbe(
+        testing.allocator,
+        mock.connector(),
+        "127.0.0.1",
+        80,
+        5,
+        70000,
+        1000,
+        &cancel,
+    ));
+}
+
+test "tcp batch probe: terminal and json serialization" {
+    const seq = [_]MockTcpConnector.MockSample{
+        .{ .outcome = .success, .latency_ns = 15_000_000 },
+        .{ .outcome = .success, .latency_ns = 25_000_000 },
+    };
+    var mock = MockTcpConnector{ .sequence = &seq };
+    const cancel = CancellationToken.init();
+
+    var batch = try executeTcpBatchProbe(
+        testing.allocator,
+        mock.connector(),
+        "127.0.0.1",
+        80,
+        2,
+        0,
+        1000,
+        &cancel,
+    );
+    defer batch.deinit(testing.allocator);
+
+    var term_buf: [2048]u8 = undefined;
+    var term_fbs = std.io.fixedBufferStream(&term_buf);
+    try batch.toTerminal(term_fbs.writer());
+    const term_str = term_fbs.getWritten();
+    try testing.expect(std.mem.indexOf(u8, term_str, "TCP Repeated Connectivity Probes for: 127.0.0.1:80") != null);
+    try testing.expect(std.mem.indexOf(u8, term_str, "STATISTICAL SUMMARY") != null);
+    try testing.expect(std.mem.indexOf(u8, term_str, "min=15.00 ms") != null);
+
+    var json_buf: [2048]u8 = undefined;
+    var json_fbs = std.io.fixedBufferStream(&json_buf);
+    try batch.toJson(json_fbs.writer());
+    const json_str = json_fbs.getWritten();
+    try testing.expect(std.mem.indexOf(u8, json_str, "\"host\":\"127.0.0.1\"") != null);
+    try testing.expect(std.mem.indexOf(u8, json_str, "\"requested_count\":2") != null);
+    try testing.expect(std.mem.indexOf(u8, json_str, "\"successful_samples\":2") != null);
 }

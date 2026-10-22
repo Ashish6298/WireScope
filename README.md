@@ -71,7 +71,7 @@ Current Development Branch: `ashish`
 | ↳ Phase 5.2 | Add DNS troubleshooting and optional resolver comparison | **COMPLETED** |
 | **Milestone 6** | **TCP Connectivity and Latency** | In Progress |
 | ↳ Phase 6.1 | Implement TCP connectivity probes | **COMPLETED** |
-| ↳ Phase 6.2 | Add repeated measurements and statistical summaries | Pending |
+| ↳ Phase 6.2 | Add repeated measurements and statistical summaries | **COMPLETED** |
 | ↳ Phase 6.3 | Provide actionable connectivity troubleshooting | Pending |
 | **Milestone 7** | TLS and HTTPS Diagnostics | Pending |
 | **Milestone 8** | Authorized Reconnaissance | Pending |
@@ -101,6 +101,7 @@ Current Development Branch: `ashish`
 - [ADR 0012: DNS Resolution and Failure Classification](docs/decisions/0012-dns-resolution-and-failure-classification.md)
 - [ADR 0013: DNS Troubleshooting and Resolver Comparison](docs/decisions/0013-dns-troubleshooting-and-resolver-comparison.md)
 - [ADR 0014: TCP Connectivity Probes and Lifecycle](docs/decisions/0014-tcp-connectivity-probes.md)
+- [ADR 0015: TCP Repeated Measurements and Statistical Summaries](docs/decisions/0015-tcp-repeated-measurements-and-statistics.md)
 
 ---
 

@@ -38,6 +38,10 @@ pub const TcpConnector = tcp.TcpConnector;
 pub const RealTcpConnector = tcp.RealTcpConnector;
 pub const MockTcpConnector = tcp.MockTcpConnector;
 pub const executeTcpProbeWithEngine = tcp.executeTcpProbeWithEngine;
+pub const FailureBreakdown = tcp.FailureBreakdown;
+pub const TcpSampleRecord = tcp.TcpSampleRecord;
+pub const TcpBatchProbeResult = tcp.TcpBatchProbeResult;
+pub const executeTcpBatchProbe = tcp.executeTcpBatchProbe;
 
 pub const ProbeType = enum {
     dns,

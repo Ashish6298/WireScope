@@ -28,6 +28,12 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
             error.InvalidTimeout => {
                 stderr.print("Error: Invalid timeout. Must be a positive integer between 1 and 300000 ms.\n", .{}) catch {};
             },
+            error.InvalidCount => {
+                stderr.print("Error: Invalid count. Must be a positive integer between 1 and 100.\n", .{}) catch {};
+            },
+            error.InvalidInterval => {
+                stderr.print("Error: Invalid interval. Must be an integer between 0 and 60000 ms.\n", .{}) catch {};
+            },
             error.InvalidFormat => {
                 stderr.print("Error: Invalid output format. Supported formats: terminal, json, markdown.\n", .{}) catch {};
             },
@@ -250,7 +256,7 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
 
     // 9. TCP Connectivity Probe dispatch
     const is_tcp_cmd = (parsed.command == .tcp) or
-        (parsed.command == .diagnose and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "tcp"));
+        (parsed.command == .diagnose and parsed.subcommand != null and (std.mem.eql(u8, parsed.subcommand.?, "tcp") or std.mem.eql(u8, parsed.subcommand.?, "latency")));
 
     if (is_tcp_cmd) {
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -284,7 +290,7 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
                 raw_target_opt = parsed.target;
             }
         } else {
-            // "wirescope diagnose tcp <target>"
+            // "wirescope diagnose tcp <target>" or "wirescope diagnose latency <target>"
             raw_target_opt = parsed.target;
         }
 
@@ -315,6 +321,44 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
                 return ExitCodes.invalid_input;
             }
             profile_id_opt = prof.id;
+        }
+
+        var effective_count = parsed.count;
+        if (parsed.command == .diagnose and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "latency") and parsed.count == 1) {
+            effective_count = 4;
+        }
+
+        if (effective_count > 1) {
+            const cancel = wirescope.probes.CancellationToken.init();
+            var batch_res = wirescope.probes.executeTcpBatchProbe(
+                allocator,
+                wirescope.probes.RealTcpConnector.connector(),
+                spec.host,
+                spec.port,
+                effective_count,
+                parsed.interval_ms,
+                parsed.timeout_ms,
+                &cancel,
+            ) catch |err| {
+                stderr.print("Error: TCP batch probe execution failed: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer batch_res.deinit(allocator);
+
+            switch (parsed.format) {
+                .json => {
+                    batch_res.toJson(stdout) catch return ExitCodes.operational_failure;
+                    stdout.writeAll("\n") catch return ExitCodes.operational_failure;
+                },
+                .terminal, .markdown => batch_res.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            }
+
+            if (batch_res.is_partial) {
+                return ExitCodes.cancelled;
+            } else if (batch_res.stats.successful_samples == 0) {
+                return ExitCodes.findings_or_violations;
+            }
+            return ExitCodes.success;
         }
 
         const cancel = wirescope.probes.CancellationToken.init();
@@ -539,4 +583,29 @@ test "execute tcp command with valid, invalid, and missing target" {
     const code4 = execute(&diag_tcp, out_fbs.writer(), err_fbs.writer());
     try testing.expect(code4 == ExitCodes.findings_or_violations or code4 == ExitCodes.success);
     try testing.expect(std.mem.startsWith(u8, out_fbs.getWritten(), "{\"operation_id\":"));
+}
+
+test "execute tcp repeated measurements with count and interval" {
+    var out_buf: [16384]u8 = undefined;
+    var err_buf: [1024]u8 = undefined;
+
+    // 1. Repeated TCP probes with JSON output
+    var out_fbs = std.io.fixedBufferStream(&out_buf);
+    var err_fbs = std.io.fixedBufferStream(&err_buf);
+    const json_batch = [_][]const u8{ "wirescope", "tcp", "127.0.0.1:54321", "-c", "2", "-i", "5", "--format", "json", "--timeout", "300" };
+    const code1 = execute(&json_batch, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code1 == ExitCodes.findings_or_violations or code1 == ExitCodes.success);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"requested_count\":2") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"stats\":{") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"samples\":[") != null);
+    try testing.expectEqual(@as(usize, 0), err_fbs.getWritten().len);
+
+    // 2. Repeated TCP probes with terminal table output
+    out_fbs.reset();
+    err_fbs.reset();
+    const term_batch = [_][]const u8{ "wirescope", "diagnose", "latency", "127.0.0.1:54321", "-c", "2", "-i", "5", "--timeout", "300" };
+    const code2 = execute(&term_batch, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code2 == ExitCodes.findings_or_violations or code2 == ExitCodes.success);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "STATISTICAL SUMMARY") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Packets/Samples") != null);
 }

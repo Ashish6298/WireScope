@@ -42,7 +42,7 @@ pub const Command = enum {
         if (std.mem.eql(u8, str, "routes") or std.mem.eql(u8, str, "route")) return .routes;
         if (std.mem.eql(u8, str, "listeners") or std.mem.eql(u8, str, "listener") or std.mem.eql(u8, str, "ports")) return .listeners;
         if (std.mem.eql(u8, str, "dns") or std.mem.eql(u8, str, "resolve")) return .dns;
-        if (std.mem.eql(u8, str, "tcp") or std.mem.eql(u8, str, "connect")) return .tcp;
+        if (std.mem.eql(u8, str, "tcp") or std.mem.eql(u8, str, "connect") or std.mem.eql(u8, str, "latency")) return .tcp;
         if (std.mem.eql(u8, str, "diagnose")) return .diagnose;
         if (std.mem.eql(u8, str, "audit")) return .audit;
         if (std.mem.eql(u8, str, "discover")) return .discover;
@@ -58,6 +58,8 @@ pub const Command = enum {
 pub const ParseError = error{
     MissingOptionValue,
     InvalidTimeout,
+    InvalidCount,
+    InvalidInterval,
     InvalidFormat,
     UnknownOption,
 };
@@ -69,6 +71,8 @@ pub const ParsedCli = struct {
     target: ?[]const u8 = null,
     format: OutputFormat = .terminal,
     timeout_ms: u32 = 5000,
+    count: u32 = 1,
+    interval_ms: u32 = 1000,
     output_path: ?[]const u8 = null,
     config_path: ?[]const u8 = null,
     profile_path: ?[]const u8 = null,
@@ -115,6 +119,20 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
             const parsed_t = std.fmt.parseInt(u32, t_str, 10) catch return error.InvalidTimeout;
             if (parsed_t == 0 or parsed_t > 300000) return error.InvalidTimeout;
             result.timeout_ms = parsed_t;
+        } else if (std.mem.eql(u8, arg, "--count") or std.mem.eql(u8, arg, "-c")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            const c_str = args[i];
+            const parsed_c = std.fmt.parseInt(u32, c_str, 10) catch return error.InvalidCount;
+            if (parsed_c == 0 or parsed_c > 100) return error.InvalidCount;
+            result.count = parsed_c;
+        } else if (std.mem.eql(u8, arg, "--interval") or std.mem.eql(u8, arg, "-i")) {
+            i += 1;
+            if (i >= args.len) return error.MissingOptionValue;
+            const int_str = args[i];
+            const parsed_int = std.fmt.parseInt(u32, int_str, 10) catch return error.InvalidInterval;
+            if (parsed_int > 60000) return error.InvalidInterval;
+            result.interval_ms = parsed_int;
         } else if (std.mem.eql(u8, arg, "--output") or std.mem.eql(u8, arg, "-o")) {
             i += 1;
             if (i >= args.len) return error.MissingOptionValue;
@@ -208,6 +226,31 @@ test "parse format and timeout options" {
     try testing.expectEqual(Command.dns, parsed_compare.command);
     try testing.expectEqualStrings("example.com", parsed_compare.target.?);
     try testing.expectEqualStrings("1.1.1.1,8.8.8.8", parsed_compare.resolvers.?);
+}
+
+test "parse count and interval options" {
+    const args = [_][]const u8{ "wirescope", "tcp", "127.0.0.1:80", "-c", "5", "-i", "250" };
+    const parsed = try parse(&args);
+    try testing.expectEqual(Command.tcp, parsed.command);
+    try testing.expectEqualStrings("127.0.0.1:80", parsed.target.?);
+    try testing.expectEqual(@as(u32, 5), parsed.count);
+    try testing.expectEqual(@as(u32, 250), parsed.interval_ms);
+
+    const long_args = [_][]const u8{ "wirescope", "diagnose", "latency", "127.0.0.1:80", "--count", "10", "--interval", "500" };
+    const parsed_long = try parse(&long_args);
+    try testing.expectEqual(@as(u32, 10), parsed_long.count);
+    try testing.expectEqual(@as(u32, 500), parsed_long.interval_ms);
+}
+
+test "parse rejects invalid count and interval" {
+    const zero_count = [_][]const u8{ "wirescope", "tcp", "127.0.0.1:80", "-c", "0" };
+    try testing.expectError(error.InvalidCount, parse(&zero_count));
+
+    const huge_count = [_][]const u8{ "wirescope", "tcp", "127.0.0.1:80", "-c", "101" };
+    try testing.expectError(error.InvalidCount, parse(&huge_count));
+
+    const huge_interval = [_][]const u8{ "wirescope", "tcp", "127.0.0.1:80", "-i", "70000" };
+    try testing.expectError(error.InvalidInterval, parse(&huge_interval));
 }
 
 test "parse rejects invalid timeout and format" {
