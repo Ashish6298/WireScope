@@ -28,6 +28,7 @@ pub const Command = enum {
     https,
     diagnose,
     audit,
+    assess,
     discover,
     baseline,
     policy,
@@ -49,6 +50,7 @@ pub const Command = enum {
         if (std.mem.eql(u8, str, "https") or std.mem.eql(u8, str, "http")) return .https;
         if (std.mem.eql(u8, str, "diagnose")) return .diagnose;
         if (std.mem.eql(u8, str, "audit")) return .audit;
+        if (std.mem.eql(u8, str, "assess") or std.mem.eql(u8, str, "assessment")) return .assess;
         if (std.mem.eql(u8, str, "discover")) return .discover;
         if (std.mem.eql(u8, str, "baseline")) return .baseline;
         if (std.mem.eql(u8, str, "policy")) return .policy;
@@ -304,6 +306,9 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
                 result.subcommand = "http";
             }
         }
+    }
+    if (result.command == .assess and result.target == null) {
+        result.target = result.subcommand;
     }
     if (result.dry_run) {
         result.preview = true;

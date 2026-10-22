@@ -85,7 +85,11 @@ Current Development Branch: `ashish`
 | ↳ Phase 9.1 | Audit HTTP security configuration | **COMPLETED** |
 | ↳ Phase 9.2 | Build a local exposure auditor | **COMPLETED** |
 | ↳ Phase 9.3 | Implement the versioned local rules engine | **COMPLETED** |
-| **Milestone 10** | Assessment Orchestration, Policies, and Baselines | Pending |
+| **Milestone 10** | **Assessment Orchestration, Policies, and Baselines** | **IN PROGRESS** |
+| ↳ Phase 10.1 | Orchestrate multi-module assessments | **COMPLETED** |
+| ↳ Phase 10.2 | Implement explicit baselines and deterministic diffs | Pending |
+| ↳ Phase 10.3 | Normalize findings and remediation tracking | Pending |
+| ↳ Phase 10.4 | Implement offline policy evaluation | Pending |
 | **Milestone 11** | Local Persistence, History, and Integrity | Pending |
 | **Milestone 12** | Reporting and Automation Contracts | Pending |
 | **Milestone 13** | Isolated Practice Lab | Pending |
@@ -121,6 +125,7 @@ Current Development Branch: `ashish`
 - [ADR 0023: Defensive HTTP Security Configuration Auditor](docs/decisions/0023-http-security-configuration-auditor.md)
 - [ADR 0024: Defensive Local Exposure Auditor](docs/decisions/0024-local-exposure-auditor.md)
 - [ADR 0025: Versioned Local Rules Engine](docs/decisions/0025-versioned-local-rules-engine.md)
+- [ADR 0026: Multi-Module Assessment Orchestrator](docs/decisions/0026-multi-module-assessment-orchestrator.md)
 
 ---
 

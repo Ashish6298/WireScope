@@ -159,6 +159,25 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
             \\  list                    List available built-in policy rules
             \\
         , .{});
+    } else if (std.mem.eql(u8, cmd, "assess") or std.mem.eql(u8, cmd, "assessment")) {
+        try writer.print(
+            \\wirescope assess — Multi-Module Assessment Runner & Orchestration
+            \\
+            \\Usage:
+            \\  wirescope assess [profile_id] [options]
+            \\
+            \\Profiles:
+            \\  loopback-diagnostics    Safe local loopback diagnostic checks for DNS, TCP, and listeners
+            \\  local-security-audit    Defensive inspection of local listeners and HTTP security headers
+            \\
+            \\Options:
+            \\  -p, --profile <id|path> Assessment profile to execute (default: loopback-diagnostics)
+            \\  --confirm-authorized    Explicitly acknowledge authorization for remote targets
+            \\  --preview, --dry-run    Preview planned execution tasks without network activity
+            \\  -t, --timeout <ms>      Per-operation probe timeout in milliseconds
+            \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\
+        , .{});
     } else if (std.mem.eql(u8, cmd, "lab")) {
         try writer.print(
             \\wirescope lab — Isolated Practice Lab Exercises

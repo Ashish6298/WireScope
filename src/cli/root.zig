@@ -906,7 +906,50 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 15. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 15. Multi-Module Assessment Runner dispatch (Milestone 10 Phase 10.1)
+    const is_assess_cmd = (parsed.command == .assess or (parsed.command == .audit and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "run")));
+
+    if (is_assess_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var prof = wirescope.assessment.BuiltinProfiles.loopback_diagnostic;
+        const requested_profile = if (parsed.profile_path) |p| p else if (parsed.target) |t| t else null;
+
+        if (requested_profile) |prof_name| {
+            if (std.mem.eql(u8, prof_name, "local-security-audit") or std.mem.eql(u8, prof_name, "security") or std.mem.eql(u8, prof_name, "audit")) {
+                prof = wirescope.assessment.BuiltinProfiles.local_security_audit;
+            } else if (std.mem.eql(u8, prof_name, "loopback-diagnostics") or std.mem.eql(u8, prof_name, "loopback") or std.mem.eql(u8, prof_name, "diag")) {
+                prof = wirescope.assessment.BuiltinProfiles.loopback_diagnostic;
+            }
+        }
+
+        if (parsed.confirm_authorized) {
+            prof.authorization_acknowledged = true;
+        }
+
+        var runner = wirescope.assessment.AssessmentRunner.init(allocator);
+        var result = runner.run(prof, .{
+            .mode = .fixture,
+        }) catch |err| {
+            stderr.print("Error: Assessment execution failed: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer result.deinit();
+
+        switch (parsed.format) {
+            .json => result.toJson(stdout) catch return ExitCodes.operational_failure,
+            .terminal => result.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            .markdown => result.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        if (result.status == .failed or result.status == .cancelled) return ExitCodes.operational_failure;
+        if (result.findings.items.len > 0) return ExitCodes.findings_or_violations;
+        return ExitCodes.success;
+    }
+
+    // 16. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -1348,4 +1391,21 @@ test "execute discover command with preview, caps, remote authorization, and exc
     const code19 = execute(&policy_md_cmd, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.success, code19);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Versioned Defensive Rules Registry") != null);
+
+    // 18. Multi-Module Assessment Runner execution (Milestone 10 Phase 10.1)
+    out_fbs.reset();
+    err_fbs.reset();
+    const assess_cmd = [_][]const u8{ "wirescope", "assess", "loopback-diagnostics" };
+    const code20 = execute(&assess_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code20 == ExitCodes.success or code20 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE MULTI-MODULE ASSESSMENT REPORT") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Manifest SHA-256:") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const assess_json = [_][]const u8{ "wirescope", "assess", "--profile", "local-security-audit", "--format", "json" };
+    const code21 = execute(&assess_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code21 == ExitCodes.success or code21 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"report_type\":\"assessment_result\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"manifest_hash\":") != null);
 }
