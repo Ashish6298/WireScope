@@ -83,7 +83,8 @@ Current Development Branch: `ashish`
 | ↳ Phase 8.4 | Add discovery diffs and inventory export | **COMPLETED** |
 | **Milestone 9** | **Defensive Security Auditors** | **IN PROGRESS** |
 | ↳ Phase 9.1 | Audit HTTP security configuration | **COMPLETED** |
-| ↳ Phase 9.2 | Build a local exposure auditor | Pending |
+| ↳ Phase 9.2 | Build a local exposure auditor | **COMPLETED** |
+| ↳ Phase 9.3 | Implement the versioned local rules engine | Pending |
 | **Milestone 10** | Assessment Orchestration, Policies, and Baselines | Pending |
 | **Milestone 11** | Local Persistence, History, and Integrity | Pending |
 | **Milestone 12** | Reporting and Automation Contracts | Pending |
@@ -118,6 +119,7 @@ Current Development Branch: `ashish`
 - [ADR 0021: Bounded TCP Port Checks and Conservative Service Identification](docs/decisions/0021-tcp-port-checks-and-conservative-service-identification.md)
 - [ADR 0022: Asset and Exposure Inventory](docs/decisions/0022-asset-and-exposure-inventory.md)
 - [ADR 0023: Defensive HTTP Security Configuration Auditor](docs/decisions/0023-http-security-configuration-auditor.md)
+- [ADR 0024: Defensive Local Exposure Auditor](docs/decisions/0024-local-exposure-auditor.md)
 
 ---
 

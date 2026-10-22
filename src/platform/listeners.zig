@@ -36,6 +36,17 @@ pub const ListenerEntry = struct {
     pid: ?u32 = null,
     process_name: ?[]const u8 = null,
 
+    pub fn clone(self: *const ListenerEntry, allocator: std.mem.Allocator) !ListenerEntry {
+        return ListenerEntry{
+            .transport = try allocator.dupe(u8, self.transport),
+            .local_address = try allocator.dupe(u8, self.local_address),
+            .local_port = self.local_port,
+            .binding_type = self.binding_type,
+            .pid = self.pid,
+            .process_name = if (self.process_name) |p| try allocator.dupe(u8, p) else null,
+        };
+    }
+
     pub fn deinit(self: *ListenerEntry, allocator: std.mem.Allocator) void {
         allocator.free(self.transport);
         allocator.free(self.local_address);

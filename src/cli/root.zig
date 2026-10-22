@@ -147,8 +147,7 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
 
     // 7. Local Listening Services dispatch
     const is_listeners_cmd = (parsed.command == .listeners) or
-        (parsed.command == .diagnose and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "listeners")) or
-        (parsed.command == .audit and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "local"));
+        (parsed.command == .diagnose and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "listeners"));
 
     if (is_listeners_cmd) {
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -829,7 +828,65 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 13. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 13. Defensive Local Listening Service Exposure Audit dispatch (Milestone 9 Phase 9.2)
+    const is_audit_local_cmd = (parsed.command == .audit and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "local"));
+
+    if (is_audit_local_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var policy: wirescope.audit.LocalExposurePolicy = undefined;
+        if (parsed.ports) |ports_spec| {
+            policy = wirescope.audit.LocalExposurePolicy.fromExpectedPorts(allocator, ports_spec) catch {
+                stderr.print("Error: Invalid expected ports specification: {s}\n", .{ports_spec}) catch {};
+                return ExitCodes.invalid_input;
+            };
+        } else {
+            policy = wirescope.audit.LocalExposurePolicy{
+                .policy_id = "default-local-exposure-policy",
+                .allow_unknown_loopback = true,
+                .allow_unlisted_wildcards = false,
+                .expected_services = &.{},
+            };
+        }
+        defer policy.deinit(allocator);
+
+        const inspector = wirescope.audit.RealListenerInspector.inspector();
+
+        var exposure_res = wirescope.audit.auditLocalExposure(
+            allocator,
+            policy,
+            inspector,
+        ) catch |err| {
+            stderr.print("Error: Local exposure audit failed: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer exposure_res.deinit(allocator);
+
+        switch (parsed.format) {
+            .json => exposure_res.toJson(stdout) catch return ExitCodes.operational_failure,
+            .terminal => exposure_res.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            .markdown => exposure_res.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        if (exposure_res.findings.len > 0) {
+            var has_actionable = false;
+            for (exposure_res.findings) |f| {
+                if (f.severity == .medium or f.severity == .high or f.severity == .critical) {
+                    has_actionable = true;
+                    break;
+                }
+            }
+            if (has_actionable) {
+                return ExitCodes.findings_or_violations;
+            }
+        }
+
+        return ExitCodes.success;
+    }
+
+    // 14. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -899,7 +956,7 @@ test "execute interfaces command" {
 }
 
 test "execute routes command" {
-    var out_buf: [16384]u8 = undefined;
+    var out_buf: [65536]u8 = undefined;
     var err_buf: [1024]u8 = undefined;
 
     var out_fbs = std.io.fixedBufferStream(&out_buf);
@@ -1020,7 +1077,7 @@ test "execute tcp command with valid, invalid, and missing target" {
 }
 
 test "execute tcp repeated measurements with count and interval" {
-    var out_buf: [16384]u8 = undefined;
+    var out_buf: [65536]u8 = undefined;
     var err_buf: [1024]u8 = undefined;
 
     // 1. Repeated TCP probes with JSON output
@@ -1045,7 +1102,7 @@ test "execute tcp repeated measurements with count and interval" {
 }
 
 test "execute tls command with missing target and invalid port" {
-    var out_buf: [16384]u8 = undefined;
+    var out_buf: [65536]u8 = undefined;
     var err_buf: [1024]u8 = undefined;
 
     // 1. Missing target
@@ -1074,7 +1131,7 @@ test "execute tls command with missing target and invalid port" {
 }
 
 test "execute https command with missing target, help, and probe output" {
-    var out_buf: [16384]u8 = undefined;
+    var out_buf: [65536]u8 = undefined;
     var err_buf: [1024]u8 = undefined;
 
     // 1. Missing target
@@ -1105,7 +1162,7 @@ test "execute https command with missing target, help, and probe output" {
 }
 
 test "execute discover command with preview, caps, remote authorization, and exclusions" {
-    var out_buf: [16384]u8 = undefined;
+    var out_buf: [65536]u8 = undefined;
     var err_buf: [2048]u8 = undefined;
     var out_fbs = std.io.fixedBufferStream(&out_buf);
     var err_fbs = std.io.fixedBufferStream(&err_buf);
@@ -1218,4 +1275,31 @@ test "execute discover command with preview, caps, remote authorization, and exc
     const code13 = execute(&audit_cmd_err, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.invalid_input, code13);
     try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "Target URL required") != null);
+
+    // 13. Defensive Local Listening Service Exposure Audit dispatch (Milestone 9 Phase 9.2)
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_local_cmd = [_][]const u8{ "wirescope", "audit", "local", "--format", "terminal" };
+    const code14 = execute(&audit_local_cmd, out_fbs.writer(), err_fbs.writer());
+    // Either 0 (clean baseline) or 1 (wildcards found on development machine)
+    try testing.expect(code14 == ExitCodes.success or code14 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE LOCAL EXPOSURE AUDIT") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "LOCAL LISTENING SOCKETS INVENTORY") != null);
+
+    // 14. Local Exposure Audit with expected ports policy and JSON format
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_local_json = [_][]const u8{ "wirescope", "audit", "local", "--ports", "22,80,443,8080", "--format", "json" };
+    const code15 = execute(&audit_local_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code15 == ExitCodes.success or code15 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"audit_type\":\"local_exposure_audit\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"policy_id\":") != null);
+
+    // 15. Local Exposure Audit Markdown format
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_local_md = [_][]const u8{ "wirescope", "audit", "local", "--format", "markdown" };
+    const code16 = execute(&audit_local_md, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code16 == ExitCodes.success or code16 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Local Listening Service Exposure Audit") != null);
 }
