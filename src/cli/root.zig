@@ -770,7 +770,66 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 12. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 12. Defensive HTTP Security Configuration Audit dispatch (Milestone 9 Phase 9.1)
+    const is_audit_http_cmd = (parsed.command == .audit and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "http"));
+
+    if (is_audit_http_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        const raw_target = parsed.target orelse {
+            stderr.print("Error: Target URL required for HTTP security audit. Usage: wirescope audit http <url>\n", .{}) catch {};
+            return ExitCodes.invalid_input;
+        };
+
+        const config = wirescope.audit.HttpAuditConfig{
+            .timeout_ms = parsed.timeout_ms,
+            .max_redirects = parsed.max_redirects,
+            .max_response_bytes = parsed.max_response_bytes,
+            .allow_redirect_scope_expansion = parsed.allow_redirect_scope_expansion,
+            .verify_certificates = !parsed.insecure,
+            .insecure_skip_verify = parsed.insecure,
+            .custom_ca_path = parsed.ca_bundle_path,
+        };
+
+        var mock_connector = wirescope.audit.MockHttpAuditConnector{};
+        const connector = mock_connector.connector();
+        var cancel = wirescope.probes.CancellationToken{};
+
+        var audit_res = wirescope.audit.executeHttpAudit(
+            allocator,
+            raw_target,
+            config,
+            connector,
+            &cancel,
+            null,
+        ) catch |err| {
+            if (err == error.InvalidTargetUrl) {
+                stderr.print("Error: Invalid URL syntax or target specification: {s}\n", .{raw_target}) catch {};
+                return ExitCodes.invalid_input;
+            }
+            stderr.print("Error: HTTP security audit failed: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer audit_res.deinit(allocator);
+
+        switch (parsed.format) {
+            .json => audit_res.toJson(stdout) catch return ExitCodes.operational_failure,
+            .terminal => audit_res.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            .markdown => audit_res.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        if (audit_res.redirect_scope_blocked) {
+            return ExitCodes.invalid_input;
+        } else if (audit_res.findings.len > 0) {
+            return ExitCodes.findings_or_violations;
+        }
+
+        return ExitCodes.success;
+    }
+
+    // 13. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -1126,4 +1185,37 @@ test "execute discover command with preview, caps, remote authorization, and exc
     try testing.expectEqual(ExitCodes.success, code9);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"type\":\"asset_inventory\"") != null);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"total_hosts\":1") != null);
+
+    // 10. Defensive HTTP Security Configuration Audit dispatch (Milestone 9 Phase 9.1)
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_cmd1 = [_][]const u8{ "wirescope", "audit", "http", "https://localhost:8443/", "--format", "terminal" };
+    const code10 = execute(&audit_cmd1, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code10);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE DEFENSIVE HTTP SECURITY AUDIT") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "SECURITY CONFIGURATION INVENTORY") != null);
+
+    // 11. Defensive HTTP Security Audit JSON and Markdown formats
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_cmd_json = [_][]const u8{ "wirescope", "audit", "http", "https://localhost:8443/", "--format", "json" };
+    const code11 = execute(&audit_cmd_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code11);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"audit_type\":\"http_security_configuration\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"schema_version\":1") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_cmd_md = [_][]const u8{ "wirescope", "audit", "http", "https://localhost:8443/", "--format", "markdown" };
+    const code12 = execute(&audit_cmd_md, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code12);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Defensive HTTP Security Audit Report") != null);
+
+    // 12. Missing target URL rejection
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_cmd_err = [_][]const u8{ "wirescope", "audit", "http" };
+    const code13 = execute(&audit_cmd_err, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code13);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "Target URL required") != null);
 }

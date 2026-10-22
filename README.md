@@ -81,7 +81,9 @@ Current Development Branch: `ashish`
 | ↳ Phase 8.2 | Build host and service discovery within policy | **COMPLETED** |
 | ↳ Phase 8.3 | Add service and version fingerprinting | **COMPLETED** |
 | ↳ Phase 8.4 | Add discovery diffs and inventory export | **COMPLETED** |
-| **Milestone 9** | Defensive Security Auditors | Pending |
+| **Milestone 9** | **Defensive Security Auditors** | **IN PROGRESS** |
+| ↳ Phase 9.1 | Audit HTTP security configuration | **COMPLETED** |
+| ↳ Phase 9.2 | Build a local exposure auditor | Pending |
 | **Milestone 10** | Assessment Orchestration, Policies, and Baselines | Pending |
 | **Milestone 11** | Local Persistence, History, and Integrity | Pending |
 | **Milestone 12** | Reporting and Automation Contracts | Pending |
@@ -115,6 +117,7 @@ Current Development Branch: `ashish`
 - [ADR 0020: Bounded Host Discovery and Reachability States](docs/decisions/0020-bounded-host-discovery.md)
 - [ADR 0021: Bounded TCP Port Checks and Conservative Service Identification](docs/decisions/0021-tcp-port-checks-and-conservative-service-identification.md)
 - [ADR 0022: Asset and Exposure Inventory](docs/decisions/0022-asset-and-exposure-inventory.md)
+- [ADR 0023: Defensive HTTP Security Configuration Auditor](docs/decisions/0023-http-security-configuration-auditor.md)
 
 ---
 

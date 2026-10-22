@@ -100,6 +100,15 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
             \\  tls <host:port>         Audit TLS configuration and certificate expiry
             \\  local                   Audit local listening ports for unexpected wildcard exposure
             \\
+            \\Options (audit http):
+            \\  --max-redirects <n>             Maximum redirect hops to follow (default: 5)
+            \\  --max-response-size <bytes>     Maximum response size bound in bytes (default: 1048576)
+            \\  --allow-redirect-scope-expansion Allow redirects to follow destinations outside initial host
+            \\  --ca-bundle <path>              Custom trusted Certificate Authority (CA) bundle PEM file
+            \\  --insecure                      Explicitly bypass TLS certificate and hostname verification
+            \\  -t, --timeout <ms>              Total operation timeout in milliseconds (default: 5000)
+            \\  -f, --format <format>           Output format: terminal, json, markdown
+            \\
         , .{});
     } else if (std.mem.eql(u8, cmd, "discover")) {
         try writer.print(
