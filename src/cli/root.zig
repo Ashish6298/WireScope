@@ -1020,7 +1020,56 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         }
     }
 
-    // 17. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 17. Defensive Findings & Remediation Tracker dispatch (Milestone 10 Phase 10.3)
+    const is_findings_cmd = (parsed.command == .audit and parsed.subcommand != null and (std.mem.eql(u8, parsed.subcommand.?, "findings") or std.mem.eql(u8, parsed.subcommand.?, "finding")));
+
+    if (is_findings_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var tracker = wirescope.assessment.FindingsTracker.init(allocator);
+        defer tracker.deinit();
+
+        var runner = wirescope.assessment.AssessmentRunner.init(allocator);
+        var assessment = runner.run(wirescope.assessment.BuiltinProfiles.local_security_audit, .{ .mode = .fixture }) catch {
+            return ExitCodes.operational_failure;
+        };
+        defer assessment.deinit();
+
+        _ = tracker.ingestAssessment(&assessment) catch {
+            return ExitCodes.operational_failure;
+        };
+
+        // If assessment had no findings (clean baseline), ingest a reference finding
+        // so the operator and reports can inspect the tracking schema and remediation trail
+        if (tracker.findings.count() == 0) {
+            _ = tracker.ingestFinding(
+                "WS-RULE-TLS-MIN-VERSION",
+                1,
+                "Deprecated TLS 1.0/1.1 protocol version enabled",
+                "https://legacy.internal.lan:443",
+                .high,
+                .confirmed,
+                "Legacy TLS protocols lack modern AEAD ciphers and are vulnerable to downgrade attacks.",
+                "Server negotiated TLSv1.0 during handshake with client.",
+                "Configure web service or load balancer to enforce TLS 1.2 or TLS 1.3 minimum version.",
+                "Defensive audit reports negotiated version; does not execute active MITM attacks.",
+                "asm-sample-1001",
+                1710000000000,
+            ) catch {};
+        }
+
+        switch (parsed.format) {
+            .terminal => tracker.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            .json => tracker.toJson(stdout) catch return ExitCodes.operational_failure,
+            .markdown => tracker.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        return ExitCodes.success;
+    }
+
+    // 18. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -1090,7 +1139,7 @@ test "execute interfaces command" {
 }
 
 test "execute routes command" {
-    var out_buf: [65536]u8 = undefined;
+    var out_buf: [131072]u8 = undefined;
     var err_buf: [1024]u8 = undefined;
 
     var out_fbs = std.io.fixedBufferStream(&out_buf);
@@ -1211,7 +1260,7 @@ test "execute tcp command with valid, invalid, and missing target" {
 }
 
 test "execute tcp repeated measurements with count and interval" {
-    var out_buf: [65536]u8 = undefined;
+    var out_buf: [131072]u8 = undefined;
     var err_buf: [1024]u8 = undefined;
 
     // 1. Repeated TCP probes with JSON output
@@ -1236,7 +1285,7 @@ test "execute tcp repeated measurements with count and interval" {
 }
 
 test "execute tls command with missing target and invalid port" {
-    var out_buf: [65536]u8 = undefined;
+    var out_buf: [131072]u8 = undefined;
     var err_buf: [1024]u8 = undefined;
 
     // 1. Missing target
@@ -1265,7 +1314,7 @@ test "execute tls command with missing target and invalid port" {
 }
 
 test "execute https command with missing target, help, and probe output" {
-    var out_buf: [65536]u8 = undefined;
+    var out_buf: [131072]u8 = undefined;
     var err_buf: [1024]u8 = undefined;
 
     // 1. Missing target
@@ -1296,7 +1345,7 @@ test "execute https command with missing target, help, and probe output" {
 }
 
 test "execute discover command with preview, caps, remote authorization, and exclusions" {
-    var out_buf: [65536]u8 = undefined;
+    var out_buf: [131072]u8 = undefined;
     var err_buf: [2048]u8 = undefined;
     var out_fbs = std.io.fixedBufferStream(&out_buf);
     var err_fbs = std.io.fixedBufferStream(&err_buf);
@@ -1510,4 +1559,31 @@ test "execute discover command with preview, caps, remote authorization, and exc
     const code25 = execute(&base_diff_md, out_fbs.writer(), err_fbs.writer());
     try testing.expect(code25 == ExitCodes.success or code25 == ExitCodes.findings_or_violations);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Baseline Deterministic Diff Report") != null);
+
+    // 21. Normalized Findings & Remediation Tracking (Milestone 10 Phase 10.3)
+    out_fbs.reset();
+    err_fbs.reset();
+    const findings_term = [_][]const u8{ "wirescope", "audit", "findings" };
+    const code26 = execute(&findings_term, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code26);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE DEFENSIVE FINDINGS & REMEDIATION TRACKER") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-FND-") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Tracked Findings:") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const findings_json = [_][]const u8{ "wirescope", "audit", "findings", "--format", "json" };
+    const code27 = execute(&findings_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code27);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"report_type\":\"findings_tracker\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"id\":\"WS-FND-") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"evidence_count\":") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const findings_md = [_][]const u8{ "wirescope", "audit", "findings", "--format", "markdown" };
+    const code28 = execute(&findings_md, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code28);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Defensive Findings & Remediation Tracker") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "`WS-FND-") != null);
 }

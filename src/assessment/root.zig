@@ -43,12 +43,22 @@ pub const BaselineError = baseline.BaselineError;
 pub const BaselineManager = baseline.BaselineManager;
 pub const normalizeObservations = baseline.normalizeObservations;
 
+pub const findings = @import("findings.zig");
+pub const FindingStatus = findings.FindingStatus;
+pub const FixVerificationOutcome = findings.FixVerificationOutcome;
+pub const EvidenceEntry = findings.EvidenceEntry;
+pub const StatusTransition = findings.StatusTransition;
+pub const TrackedFinding = findings.TrackedFinding;
+pub const FindingsTracker = findings.FindingsTracker;
+pub const generateFindingId = findings.generateFindingId;
+
 test "assessment root re-exports compile cleanly" {
     _ = config;
     _ = profile;
     _ = redact;
     _ = runner;
     _ = baseline;
+    _ = findings;
 
     const def_cfg = WireScopeConfig{};
     try def_cfg.validate();

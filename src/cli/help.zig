@@ -100,6 +100,7 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
             \\  tls <host:port>         Audit TLS configuration and certificate expiry
             \\  local                   Audit local listening ports for unexpected wildcard exposure
             \\  rules                   List versioned defensive rules and CVE disclaimer
+            \\  findings                List and track normalized defensive findings and lifecycle status
             \\
             \\Options (audit http):
             \\  --max-redirects <n>             Maximum redirect hops to follow (default: 5)

@@ -88,7 +88,7 @@ Current Development Branch: `ashish`
 | **Milestone 10** | **Assessment Orchestration, Policies, and Baselines** | **IN PROGRESS** |
 | ↳ Phase 10.1 | Orchestrate multi-module assessments | **COMPLETED** |
 | ↳ Phase 10.2 | Implement explicit baselines and deterministic diffs | **COMPLETED** |
-| ↳ Phase 10.3 | Normalize findings and remediation tracking | Pending |
+| ↳ Phase 10.3 | Normalize findings and remediation tracking | **COMPLETED** |
 | ↳ Phase 10.4 | Implement offline policy evaluation | Pending |
 | **Milestone 11** | Local Persistence, History, and Integrity | Pending |
 | **Milestone 12** | Reporting and Automation Contracts | Pending |
@@ -127,6 +127,7 @@ Current Development Branch: `ashish`
 - [ADR 0025: Versioned Local Rules Engine](docs/decisions/0025-versioned-local-rules-engine.md)
 - [ADR 0026: Multi-Module Assessment Orchestrator](docs/decisions/0026-multi-module-assessment-orchestrator.md)
 - [ADR 0027: Explicit Baselines and Deterministic Diffs](docs/decisions/0027-explicit-baselines-and-deterministic-diffs.md)
+- [ADR 0028: Normalize Findings and Remediation Tracking](docs/decisions/0028-normalize-findings-and-remediation-tracking.md)
 
 ---
 
