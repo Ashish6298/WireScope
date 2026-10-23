@@ -30,7 +30,7 @@ jobs:
             target: x86_64-linux
             bin_name: wirescope
             archive_ext: tar.gz
-          - os: macos-latest
+          - os: macos-14
             target: aarch64-macos
             bin_name: wirescope
             archive_ext: tar.gz
@@ -42,18 +42,15 @@ jobs:
       - name: Setup macOS Developer Tools
         if: runner.os == 'macOS'
         run: |
-          if [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk" ]; then
-            sudo xcode-select --switch /Library/Developer/CommandLineTools
-          elif [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+          if [ -d "/Applications/Xcode_15.4.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_15.4.app
+          elif [ -d "/Applications/Xcode.app" ]; then
+            sudo xcode-select -s /Applications/Xcode.app
           fi
+          sudo xcodebuild -license accept 2>/dev/null || true
           SDK_PATH=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || xcrun --show-sdk-path 2>/dev/null || echo "")
           if [ -n "$SDK_PATH" ]; then
             echo "SDKROOT=${SDK_PATH}" >> $GITHUB_ENV
-          fi
-          DEV_DIR=$(xcode-select -p 2>/dev/null || echo "")
-          if [ -n "$DEV_DIR" ]; then
-            echo "DEVELOPER_DIR=${DEV_DIR}" >> $GITHUB_ENV
           fi
           rm -rf ~/.cache/zig .zig-cache
 
@@ -84,6 +81,7 @@ jobs:
       - name: Smoke Test Binary (POSIX)
         if: runner.os != 'Windows'
         run: |
+          chmod +x ./zig-out/bin/wirescope
           ./zig-out/bin/wirescope --help
           ./zig-out/bin/wirescope version
 
