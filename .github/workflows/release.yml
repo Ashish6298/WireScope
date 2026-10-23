@@ -69,6 +69,10 @@ jobs:
           fi
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
+      - name: Clear corrupted Zig cache (macOS fix)
+        if: runner.os == 'macOS'
+        run: rm -rf ~/.cache/zig zig-cache
+
       - name: Build Optimized Release Binary
         run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
 
