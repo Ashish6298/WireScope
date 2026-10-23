@@ -1280,6 +1280,168 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         }
     }
 
+    // 19. Report Integrity Manifest dispatch (Milestone 11 Phase 11.3)
+    if (parsed.command == .manifest or (parsed.command == .report and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "manifest"))) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        const action = if (parsed.command == .manifest)
+            (parsed.subcommand orelse "verify")
+        else
+            (parsed.target orelse "verify");
+
+        const target_manifest_path = if (parsed.command == .manifest)
+            parsed.target
+        else
+            null;
+
+        if (std.mem.eql(u8, action, "verify")) {
+            const manifest_path = target_manifest_path orelse {
+                stderr.print("Error: Manifest file path required for verification. Usage: wirescope manifest verify <manifest_path>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(manifest_path, .{}) catch |err| {
+                stderr.print("Error opening manifest file '{s}': {s}\n", .{ manifest_path, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const content = file.readToEndAlloc(allocator, 10 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading manifest file '{s}': {s}\n", .{ manifest_path, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(content);
+
+            var manifest_record = wirescope.storage.ReportManifest.parseFromJson(allocator, content) catch |err| {
+                stderr.print("Error parsing manifest '{s}': {s}\n", .{ manifest_path, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+            defer manifest_record.deinit(allocator);
+
+            const artifacts_dir = std.fs.path.dirname(manifest_path) orelse ".";
+
+            var result = wirescope.storage.verifyManifest(allocator, &manifest_record, artifacts_dir) catch |err| {
+                stderr.print("Error during manifest verification: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer result.deinit();
+
+            switch (parsed.format) {
+                .terminal => result.renderTerminal(stdout) catch return ExitCodes.operational_failure,
+                .json => result.renderJson(stdout) catch return ExitCodes.operational_failure,
+                .markdown => result.renderMarkdown(stdout) catch return ExitCodes.operational_failure,
+            }
+
+            return if (result.is_valid) ExitCodes.success else ExitCodes.findings_or_violations;
+        } else if (std.mem.eql(u8, action, "inspect")) {
+            const manifest_path = target_manifest_path orelse {
+                stderr.print("Error: Manifest file path required for inspect. Usage: wirescope manifest inspect <manifest_path>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(manifest_path, .{}) catch |err| {
+                stderr.print("Error opening manifest file '{s}': {s}\n", .{ manifest_path, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const content = file.readToEndAlloc(allocator, 10 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading manifest file '{s}': {s}\n", .{ manifest_path, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(content);
+
+            var manifest_record = wirescope.storage.ReportManifest.parseFromJson(allocator, content) catch |err| {
+                stderr.print("Error parsing manifest '{s}': {s}\n", .{ manifest_path, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+            defer manifest_record.deinit(allocator);
+
+            switch (parsed.format) {
+                .json => {
+                    const json_out = manifest_record.toJson(allocator) catch return ExitCodes.operational_failure;
+                    defer allocator.free(json_out);
+                    stdout.writeAll(json_out) catch return ExitCodes.operational_failure;
+                },
+                .markdown => {
+                    stdout.print(
+                        \\# Report Manifest: {s}
+                        \\
+                        \\**Assessment ID:** `{s}`  
+                        \\**Tool Version:** `{s}`  
+                        \\**Manifest SHA-256:** `{s}`  
+                        \\**Total Artifacts:** {d}  
+                        \\
+                        \\| Artifact Path | Type | SHA-256 Digest | Size (bytes) |
+                        \\| :--- | :---: | :--- | :---: |
+                        \\
+                    , .{
+                        manifest_record.manifest_id,
+                        manifest_record.assessment_id,
+                        manifest_record.tool_version,
+                        &manifest_record.manifest_hash,
+                        manifest_record.artifacts.len,
+                    }) catch return ExitCodes.operational_failure;
+
+                    for (manifest_record.artifacts) |art| {
+                        stdout.print("| `{s}` | {s} | `{s:.16}...` | {d} |\n", .{
+                            art.path,
+                            art.artifact_type.toSlice(),
+                            &art.hash,
+                            art.size_bytes,
+                        }) catch return ExitCodes.operational_failure;
+                    }
+
+                    stdout.print("\n> [!WARNING]\n> {s}\n", .{manifest_record.limitations_notice}) catch return ExitCodes.operational_failure;
+                },
+                .terminal => {
+                    stdout.print(
+                        \\================================================================================
+                        \\WIRESCOPE REPORT INTEGRITY MANIFEST
+                        \\================================================================================
+                        \\Manifest ID:       {s}
+                        \\Assessment ID:     {s}
+                        \\Tool Version:      {s}
+                        \\Manifest SHA-256:  {s}
+                        \\Referenced Artifacts: {d}
+                        \\--------------------------------------------------------------------------------
+                        \\
+                    , .{
+                        manifest_record.manifest_id,
+                        manifest_record.assessment_id,
+                        manifest_record.tool_version,
+                        &manifest_record.manifest_hash,
+                        manifest_record.artifacts.len,
+                    }) catch return ExitCodes.operational_failure;
+
+                    for (manifest_record.artifacts) |art| {
+                        stdout.print("  {s:16} {s} ({d} bytes)\n    SHA-256: {s}\n", .{
+                            art.artifact_type.toSlice(),
+                            art.path,
+                            art.size_bytes,
+                            &art.hash,
+                        }) catch return ExitCodes.operational_failure;
+                    }
+
+                    stdout.print(
+                        \\--------------------------------------------------------------------------------
+                        \\LIMITATIONS & SECURITY NOTICE:
+                        \\  {s}
+                        \\================================================================================
+                        \\
+                    , .{manifest_record.limitations_notice}) catch return ExitCodes.operational_failure;
+                },
+            }
+
+            return ExitCodes.success;
+        } else {
+            stderr.print("Error: Unknown manifest action '{s}'. Supported actions: verify, inspect\n", .{action}) catch {};
+            return ExitCodes.invalid_input;
+        }
+    }
+
     // 19. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
@@ -1865,4 +2027,70 @@ test "execute discover command with preview, caps, remote authorization, and exc
     const code36 = execute(&history_recover, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.success, code36);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Recovery completed") != null);
+
+    // 24. Report Integrity Manifest Dispatch (Milestone 11 Phase 11.3)
+    const allocator = testing.allocator;
+
+    // 37: Verify without manifest path returns invalid_input
+    out_fbs.reset();
+    err_fbs.reset();
+    const manifest_no_path = [_][]const u8{ "wirescope", "manifest", "verify" };
+    const code37 = execute(&manifest_no_path, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code37);
+
+    // Setup CLI manifest test fixture
+    const test_mnf_dir = "test_cli_manifest";
+    defer std.fs.cwd().deleteTree(test_mnf_dir) catch {};
+    try std.fs.cwd().makePath(test_mnf_dir);
+
+    const art_p = try std.fs.path.join(allocator, &[_][]const u8{ test_mnf_dir, "report.json" });
+    defer allocator.free(art_p);
+    try std.fs.cwd().writeFile(.{ .sub_path = art_p, .data = "{\"findings\":0}" });
+
+    const mnf_spec = [_]wirescope.storage.ArtifactFileSpec{
+        .{ .name = "report.json", .atype = .json_report },
+    };
+    var gen_mnf = try wirescope.storage.generateManifest(
+        allocator,
+        "cli-asm-1",
+        .{ .profile_id = "p1", .profile_name = "P1" },
+        test_mnf_dir,
+        &mnf_spec,
+    );
+    defer gen_mnf.deinit(allocator);
+
+    const mnf_json_str = try gen_mnf.toJson(allocator);
+    defer allocator.free(mnf_json_str);
+
+    const mnf_file_path = try std.fs.path.join(allocator, &[_][]const u8{ test_mnf_dir, "manifest.json" });
+    defer allocator.free(mnf_file_path);
+    try std.fs.cwd().writeFile(.{ .sub_path = mnf_file_path, .data = mnf_json_str });
+
+    // 38: Verify intact manifest via terminal format
+    out_fbs.reset();
+    err_fbs.reset();
+    const manifest_verify_term = [_][]const u8{ "wirescope", "manifest", "verify", mnf_file_path };
+    const code38 = execute(&manifest_verify_term, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code38);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE REPORT INTEGRITY VERIFICATION") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "does NOT prove author identity") != null);
+
+    // 39: Verify intact manifest via JSON format
+    out_fbs.reset();
+    err_fbs.reset();
+    const manifest_verify_json = [_][]const u8{ "wirescope", "manifest", "verify", mnf_file_path, "--format", "json" };
+    const code39 = execute(&manifest_verify_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code39);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"report_type\":\"manifest_verification\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"is_valid\":true") != null);
+
+    // 40: Tamper artifact -> verification fails with ExitCodes.findings_or_violations
+    try std.fs.cwd().writeFile(.{ .sub_path = art_p, .data = "{\"findings\":999}" });
+    out_fbs.reset();
+    err_fbs.reset();
+    const manifest_verify_tampered = [_][]const u8{ "wirescope", "manifest", "verify", mnf_file_path, "--format", "json" };
+    const code40 = execute(&manifest_verify_tampered, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.findings_or_violations, code40);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"is_valid\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"status\":\"modified\"") != null);
 }

@@ -33,6 +33,7 @@ pub const Command = enum {
     baseline,
     policy,
     history,
+    manifest,
     report,
     lab,
     unknown,
@@ -55,6 +56,7 @@ pub const Command = enum {
         if (std.mem.eql(u8, str, "baseline")) return .baseline;
         if (std.mem.eql(u8, str, "policy")) return .policy;
         if (std.mem.eql(u8, str, "history")) return .history;
+        if (std.mem.eql(u8, str, "manifest") or std.mem.eql(u8, str, "integrity")) return .manifest;
         if (std.mem.eql(u8, str, "report")) return .report;
         if (std.mem.eql(u8, str, "lab")) return .lab;
         return .unknown;

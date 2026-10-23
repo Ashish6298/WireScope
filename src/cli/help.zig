@@ -15,6 +15,7 @@ pub fn printRootHelp(writer: anytype) !void {
         \\  baseline      Manage and compare baseline state snapshots
         \\  policy        Evaluate local security rules and exposure policies
         \\  history       Query, inspect, compare, and prune assessment history
+        \\  manifest      Verify report artifact integrity manifests and detect tampering
         \\  lab           Execute reproducible local practice lab scenarios
         \\  capabilities  Inspect platform capabilities and supported features
         \\  version       Display WireScope version and compiler information
@@ -197,6 +198,26 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
             \\
             \\Options:
             \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\
+        , .{});
+    } else if (std.mem.eql(u8, cmd, "manifest")) {
+        try writer.print(
+            \\wirescope manifest — Report Artifact Integrity & Verification
+            \\
+            \\Usage:
+            \\  wirescope manifest <action> [target] [options]
+            \\
+            \\Actions:
+            \\  verify <manifest_path>  Verify report artifacts against cryptographic SHA-256 manifest
+            \\  inspect <manifest_path> Inspect manifest metadata, referenced artifacts, and hashes
+            \\
+            \\Options:
+            \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\
+            \\Notice:
+            \\  SHA-256 digests verify local integrity and detect modified/missing files.
+            \\  A local hash alone does NOT prove author identity or protect against
+            \\  an adversary with write access to both report and manifest.
             \\
         , .{});
     } else if (std.mem.eql(u8, cmd, "lab")) {
