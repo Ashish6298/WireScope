@@ -223,7 +223,7 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
         , .{});
     } else if (std.mem.eql(u8, cmd, "report")) {
         try writer.print(
-            \\wirescope report — Assessment Reporting & Schema Validation
+            \\wirescope report — Assessment Reporting, Markdown & Terminal Generation
             \\
             \\Usage:
             \\  wirescope report <action> [target] [options]
@@ -231,9 +231,19 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
             \\Actions:
             \\  validate <file.json>    Validate JSON report against versioned schema
             \\  normalize <file.json>   Normalize volatile fields in report for golden testing
+            \\  markdown <file.json>    Render readable GitHub Flavored Markdown report
+            \\  terminal <file.json>    Render formatted terminal summary report
+            \\  export <file.json>      Export report in specified --format (terminal, json, markdown)
             \\
             \\Options:
             \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\  -o, --output <path>     Write output to specified file path (safe atomic write)
+            \\      --force             Allow overwriting existing output file
+            \\      --redact            Redact credentials and sensitive patterns
+            \\
+            \\Notes:
+            \\  Redaction reduces report reproducibility during audit verification.
+            \\  Observations are strictly distinguished from security findings.
             \\
         , .{});
     } else if (std.mem.eql(u8, cmd, "lab")) {

@@ -111,6 +111,8 @@ pub const ParsedCli = struct {
     rate_limit_delay_ms: u32 = 5,
     inventory: bool = false,
     diff_path: ?[]const u8 = null,
+    force: bool = false,
+    redact: bool = false,
 };
 
 pub fn parse(args: []const []const u8) ParseError!ParsedCli {
@@ -135,6 +137,10 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
             if (result.command == .none) result.command = .version;
         } else if (std.mem.eql(u8, arg, "--non-interactive") or std.mem.eql(u8, arg, "-y")) {
             result.non_interactive = true;
+        } else if (std.mem.eql(u8, arg, "--force")) {
+            result.force = true;
+        } else if (std.mem.eql(u8, arg, "--redact") or std.mem.eql(u8, arg, "--redact-sensitive")) {
+            result.redact = true;
         } else if (std.mem.eql(u8, arg, "--dry-run")) {
             result.dry_run = true;
         } else if (std.mem.eql(u8, arg, "--format") or std.mem.eql(u8, arg, "-f")) {

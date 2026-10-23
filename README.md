@@ -96,7 +96,7 @@ Current Development Branch: `ashish`
 | ↳ Phase 11.3 | Add report integrity manifests | **COMPLETED** |
 | **Milestone 12** | **Reporting and Automation Contracts** | **IN PROGRESS** |
 | ↳ Phase 12.1 | Implement versioned JSON reports | **COMPLETED** |
-| ↳ Phase 12.2 | Implement Markdown and terminal reports | Pending |
+| ↳ Phase 12.2 | Implement Markdown and terminal reports | **COMPLETED** |
 | ↳ Phase 12.3 | Make CLI output safe for scripts and local automation | Pending |
 | **Milestone 13** | Isolated Practice Lab | Pending |
 | **Milestone 14** | Hardening, Cross-Platform Validation, and Release Prep | Pending |
@@ -139,6 +139,7 @@ Current Development Branch: `ashish`
 - [ADR 0031: History Queries, Retention, and Recovery](docs/decisions/0031-history-queries-retention-and-recovery.md)
 - [ADR 0032: Report Integrity Manifests](docs/decisions/0032-report-integrity-manifests.md)
 - [ADR 0033: Versioned JSON Reports](docs/decisions/0033-versioned-json-reports.md)
+- [ADR 0034: Markdown and Terminal Reports](docs/decisions/0034-markdown-and-terminal-reports.md)
 
 ---
 

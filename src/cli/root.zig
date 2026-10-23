@@ -1530,11 +1530,197 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
             };
             defer allocator.free(normalized);
 
-            stdout.writeAll(normalized) catch return ExitCodes.operational_failure;
-            stdout.writeAll("\n") catch return ExitCodes.operational_failure;
+            if (parsed.output_path) |out_p| {
+                wirescope.reporting.safeWriteReportFile(allocator, out_p, normalized, parsed.force) catch |err| {
+                    if (err == error.FileAlreadyExists) {
+                        stderr.print("Error: Output file '{s}' already exists. Use --force to overwrite.\n", .{out_p}) catch {};
+                        return ExitCodes.invalid_input;
+                    }
+                    stderr.print("Error writing report file '{s}': {s}\n", .{ out_p, @errorName(err) }) catch {};
+                    return ExitCodes.operational_failure;
+                };
+                stdout.print("Normalized report written to '{s}'.\n", .{out_p}) catch return ExitCodes.operational_failure;
+            } else {
+                stdout.writeAll(normalized) catch return ExitCodes.operational_failure;
+                stdout.writeAll("\n") catch return ExitCodes.operational_failure;
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "markdown") or std.mem.eql(u8, action, "md")) {
+            const target_file = file_path orelse {
+                stderr.print("Error: Report file path required. Usage: wirescope report markdown <report.json> [-o <path>] [--force] [--redact]\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(target_file, .{}) catch |err| {
+                stderr.print("Error opening report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const raw_content = file.readToEndAlloc(allocator, 50 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(raw_content);
+
+            var parsed_report = wirescope.reporting.parseReportFromJson(allocator, raw_content) catch |err| {
+                stderr.print("Failed to parse report '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+            defer parsed_report.deinit();
+
+            var rep_data = parsed_report.data;
+            if (parsed.redact) {
+                rep_data = wirescope.reporting.redactReportData(parsed_report.arena.allocator(), &rep_data, .{}) catch |err| {
+                    stderr.print("Error redacting report: {s}\n", .{@errorName(err)}) catch {};
+                    return ExitCodes.operational_failure;
+                };
+            }
+
+            const rendered_md = wirescope.reporting.renderMarkdownToString(allocator, &rep_data, .{ .redacted = parsed.redact }) catch |err| {
+                stderr.print("Error rendering Markdown report: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(rendered_md);
+
+            if (parsed.output_path) |out_p| {
+                wirescope.reporting.safeWriteReportFile(allocator, out_p, rendered_md, parsed.force) catch |err| {
+                    if (err == error.FileAlreadyExists) {
+                        stderr.print("Error: Output file '{s}' already exists. Use --force to overwrite.\n", .{out_p}) catch {};
+                        return ExitCodes.invalid_input;
+                    }
+                    stderr.print("Error writing Markdown report file '{s}': {s}\n", .{ out_p, @errorName(err) }) catch {};
+                    return ExitCodes.operational_failure;
+                };
+                stdout.print("Markdown report saved to '{s}'.\n", .{out_p}) catch return ExitCodes.operational_failure;
+            } else {
+                stdout.writeAll(rendered_md) catch return ExitCodes.operational_failure;
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "terminal") or std.mem.eql(u8, action, "term")) {
+            const target_file = file_path orelse {
+                stderr.print("Error: Report file path required. Usage: wirescope report terminal <report.json> [-o <path>] [--force] [--redact]\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(target_file, .{}) catch |err| {
+                stderr.print("Error opening report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const raw_content = file.readToEndAlloc(allocator, 50 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(raw_content);
+
+            var parsed_report = wirescope.reporting.parseReportFromJson(allocator, raw_content) catch |err| {
+                stderr.print("Failed to parse report '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+            defer parsed_report.deinit();
+
+            var rep_data = parsed_report.data;
+            if (parsed.redact) {
+                rep_data = wirescope.reporting.redactReportData(parsed_report.arena.allocator(), &rep_data, .{}) catch |err| {
+                    stderr.print("Error redacting report: {s}\n", .{@errorName(err)}) catch {};
+                    return ExitCodes.operational_failure;
+                };
+            }
+
+            const rendered_term = wirescope.reporting.renderTerminalToString(allocator, &rep_data, .{ .redacted = parsed.redact }) catch |err| {
+                stderr.print("Error rendering Terminal report: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(rendered_term);
+
+            if (parsed.output_path) |out_p| {
+                wirescope.reporting.safeWriteReportFile(allocator, out_p, rendered_term, parsed.force) catch |err| {
+                    if (err == error.FileAlreadyExists) {
+                        stderr.print("Error: Output file '{s}' already exists. Use --force to overwrite.\n", .{out_p}) catch {};
+                        return ExitCodes.invalid_input;
+                    }
+                    stderr.print("Error writing Terminal report file '{s}': {s}\n", .{ out_p, @errorName(err) }) catch {};
+                    return ExitCodes.operational_failure;
+                };
+                stdout.print("Terminal report saved to '{s}'.\n", .{out_p}) catch return ExitCodes.operational_failure;
+            } else {
+                stdout.writeAll(rendered_term) catch return ExitCodes.operational_failure;
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "export")) {
+            const target_file = file_path orelse {
+                stderr.print("Error: Report file path required. Usage: wirescope report export <report.json> [--format terminal|json|markdown] [-o <path>] [--force] [--redact]\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(target_file, .{}) catch |err| {
+                stderr.print("Error opening report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const raw_content = file.readToEndAlloc(allocator, 50 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(raw_content);
+
+            var parsed_report = wirescope.reporting.parseReportFromJson(allocator, raw_content) catch |err| {
+                stderr.print("Failed to parse report '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+            defer parsed_report.deinit();
+
+            var rep_data = parsed_report.data;
+            if (parsed.redact) {
+                rep_data = wirescope.reporting.redactReportData(parsed_report.arena.allocator(), &rep_data, .{}) catch |err| {
+                    stderr.print("Error redacting report: {s}\n", .{@errorName(err)}) catch {};
+                    return ExitCodes.operational_failure;
+                };
+            }
+
+            var rendered_bytes: []const u8 = undefined;
+            switch (parsed.format) {
+                .markdown => {
+                    rendered_bytes = wirescope.reporting.renderMarkdownToString(allocator, &rep_data, .{ .redacted = parsed.redact }) catch |err| {
+                        stderr.print("Error rendering Markdown report: {s}\n", .{@errorName(err)}) catch {};
+                        return ExitCodes.operational_failure;
+                    };
+                },
+                .terminal => {
+                    rendered_bytes = wirescope.reporting.renderTerminalToString(allocator, &rep_data, .{ .redacted = parsed.redact }) catch |err| {
+                        stderr.print("Error rendering Terminal report: {s}\n", .{@errorName(err)}) catch {};
+                        return ExitCodes.operational_failure;
+                    };
+                },
+                .json => {
+                    const json_str = wirescope.reporting.serializeReport(allocator, &rep_data) catch |err| {
+                        stderr.print("Error serializing JSON report: {s}\n", .{@errorName(err)}) catch {};
+                        return ExitCodes.operational_failure;
+                    };
+                    rendered_bytes = json_str;
+                },
+            }
+            defer allocator.free(rendered_bytes);
+
+            if (parsed.output_path) |out_p| {
+                wirescope.reporting.safeWriteReportFile(allocator, out_p, rendered_bytes, parsed.force) catch |err| {
+                    if (err == error.FileAlreadyExists) {
+                        stderr.print("Error: Output file '{s}' already exists. Use --force to overwrite.\n", .{out_p}) catch {};
+                        return ExitCodes.invalid_input;
+                    }
+                    stderr.print("Error writing exported report file '{s}': {s}\n", .{ out_p, @errorName(err) }) catch {};
+                    return ExitCodes.operational_failure;
+                };
+                stdout.print("Report exported to '{s}'.\n", .{out_p}) catch return ExitCodes.operational_failure;
+            } else {
+                stdout.writeAll(rendered_bytes) catch return ExitCodes.operational_failure;
+            }
             return ExitCodes.success;
         } else {
-            stderr.print("Error: Unknown report action '{s}'. Supported actions: validate, normalize\n", .{action}) catch {};
+            stderr.print("Error: Unknown report action '{s}'. Supported actions: validate, normalize, markdown, terminal, export\n", .{action}) catch {};
             return ExitCodes.invalid_input;
         }
     }
@@ -2256,4 +2442,60 @@ test "execute discover command with preview, caps, remote authorization, and exc
     try testing.expectEqual(ExitCodes.success, code44);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"schema_version\": 1") != null);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"started_at_ms\": 1710000000000") != null);
+
+    // 26. Markdown & Terminal Reports Dispatch with Safe Output and Redaction (Milestone 12 Phase 12.2)
+    // 45: Render Markdown report
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_md_cmd = [_][]const u8{ "wirescope", "report", "markdown", valid_report_path };
+    const code45 = execute(&report_md_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code45);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Assessment Report: Local Security Audit") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "**Status: COMPLETE**") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "asm-cli-report-1") != null);
+
+    // 46: Render Terminal report
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_term_cmd = [_][]const u8{ "wirescope", "report", "terminal", valid_report_path };
+    const code46 = execute(&report_term_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code46);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE DEFENSIVE ASSESSMENT REPORT") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Execution Status:    [completed]") != null);
+
+    // 47: Render report with --redact flag
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_redact_cmd = [_][]const u8{ "wirescope", "report", "markdown", valid_report_path, "--redact" };
+    const code47 = execute(&report_redact_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code47);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "REDACTION APPLIED") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "reduce report reproducibility") != null);
+
+    // 48: Write report to explicit --output path
+    const md_out_path = try std.fs.path.join(allocator, &[_][]const u8{ test_mnf_dir, "exported_audit.md" });
+    defer allocator.free(md_out_path);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_write_cmd = [_][]const u8{ "wirescope", "report", "markdown", valid_report_path, "-o", md_out_path };
+    const code48 = execute(&report_write_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code48);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Markdown report saved to") != null);
+
+    // 49: Writing again to existing output file without --force fails safely
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_write_noforce = [_][]const u8{ "wirescope", "report", "markdown", valid_report_path, "-o", md_out_path };
+    const code49 = execute(&report_write_noforce, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code49);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "already exists. Use --force to overwrite") != null);
+
+    // 50: Writing again with --force succeeds
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_write_force = [_][]const u8{ "wirescope", "report", "markdown", valid_report_path, "-o", md_out_path, "--force" };
+    const code50 = execute(&report_write_force, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code50);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Markdown report saved to") != null);
 }
