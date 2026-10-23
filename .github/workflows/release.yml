@@ -1,0 +1,149 @@
+name: Release Automation
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release version tag (e.g., v0.1.0-rc1)'
+        required: true
+        default: 'v0.1.0-rc1'
+
+permissions:
+  contents: write
+
+jobs:
+  build_release_artifacts:
+    name: Build Artifact (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-windows
+            bin_name: wirescope.exe
+            archive_ext: zip
+          - os: ubuntu-latest
+            target: x86_64-linux
+            bin_name: wirescope
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: aarch64-macos
+            bin_name: wirescope
+            archive_ext: tar.gz
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Zig Compiler
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Determine Version Tag
+        id: vars
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [ -z "$TAG" ] || [[ "$TAG" == "main" ]] || [[ "$TAG" == "ashish" ]]; then
+            TAG="${{ github.event.inputs.tag_name || 'v0.1.0-rc1' }}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Build Optimized Release Binary
+        run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
+
+      - name: Smoke Test Binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .\zig-out\bin\wirescope.exe --help
+          .\zig-out\bin\wirescope.exe version
+
+      - name: Smoke Test Binary (POSIX)
+        if: runner.os != 'Windows'
+        run: |
+          ./zig-out/bin/wirescope --help
+          ./zig-out/bin/wirescope version
+
+      - name: Package Release Archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $Tag = "${{ steps.vars.outputs.tag }}"
+          $ArchiveName = "wirescope-${Tag}-${{ matrix.target }}.zip"
+          $StageDir = "dist_stage"
+          New-Item -ItemType Directory -Path $StageDir -Force
+          Copy-Item "zig-out\bin\wirescope.exe" -Destination $StageDir
+          Copy-Item "README.md" -Destination $StageDir
+          Copy-Item "LICENSE" -Destination $StageDir
+          Copy-Item "SECURITY.md" -Destination $StageDir
+          Compress-Archive -Path "$StageDir\*" -DestinationPath $ArchiveName -Force
+          $Hash = (Get-FileHash -Path $ArchiveName -Algorithm SHA256).Hash.ToLower()
+          "$Hash  $ArchiveName" | Out-File -FilePath "$ArchiveName.sha256" -Encoding ascii
+
+      - name: Package Release Archive (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          TAG="${{ steps.vars.outputs.tag }}"
+          ARCHIVE_NAME="wirescope-${TAG}-${{ matrix.target }}.tar.gz"
+          STAGE_DIR="dist_stage"
+          mkdir -p "${STAGE_DIR}"
+          cp "zig-out/bin/wirescope" "${STAGE_DIR}/"
+          cp README.md LICENSE SECURITY.md "${STAGE_DIR}/"
+          tar -czf "${ARCHIVE_NAME}" -C "${STAGE_DIR}" .
+          shasum -a 256 "${ARCHIVE_NAME}" > "${ARCHIVE_NAME}.sha256"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-${{ matrix.target }}
+          path: |
+            wirescope-*-${{ matrix.target }}.*
+
+  publish_github_release:
+    name: Publish GitHub Release
+    needs: build_release_artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Determine Version Tag
+        id: vars
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [ -z "$TAG" ] || [[ "$TAG" == "main" ]] || [[ "$TAG" == "ashish" ]]; then
+            TAG="${{ github.event.inputs.tag_name || 'v0.1.0-rc1' }}"
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Download Built Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_assets
+          merge-multiple: true
+
+      - name: Consolidate SHA-256 Checksums
+        working-directory: release_assets
+        run: |
+          cat *.sha256 > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: WireScope ${{ steps.vars.outputs.tag }}
+          body_path: docs/release_notes_v0.1.0_rc1.md
+          draft: false
+          prerelease: ${{ contains(steps.vars.outputs.tag, '-rc') }}
+          files: |
+            release_assets/*.zip
+            release_assets/*.tar.gz
+            release_assets/SHA256SUMS.txt

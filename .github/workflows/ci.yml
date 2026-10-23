@@ -1,0 +1,99 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main, ashish ]
+  pull_request:
+    branches: [ main, ashish ]
+
+permissions:
+  contents: read
+
+jobs:
+  lint_and_format:
+    name: Code Formatting Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Zig Compiler
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Check Source Code Formatting
+        run: zig fmt --check src build.zig poc
+
+  build_and_test:
+    name: Test Matrix (${{ matrix.os }})
+    needs: lint_and_format
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Zig Compiler
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Build Library and CLI
+        run: zig build
+
+      - name: Execute Full Test Suite
+        run: zig build test --summary all
+
+      - name: Run CLI Smoke Tests (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          .\zig-out\bin\wirescope.exe --help
+          .\zig-out\bin\wirescope.exe version
+          .\zig-out\bin\wirescope.exe capabilities --format json
+          .\zig-out\bin\wirescope.exe lab list
+          .\zig-out\bin\wirescope.exe lab run dns_failure
+          powershell.exe -File examples/automation/verify_safety_gate.ps1 -WirescopeBin .\zig-out\bin\wirescope.exe
+          powershell.exe -File examples/automation/check_local_policy.ps1 -WirescopeBin .\zig-out\bin\wirescope.exe
+
+      - name: Run CLI Smoke Tests (POSIX)
+        if: runner.os != 'Windows'
+        run: |
+          ./zig-out/bin/wirescope --help
+          ./zig-out/bin/wirescope version
+          ./zig-out/bin/wirescope capabilities --format json
+          ./zig-out/bin/wirescope lab list
+          ./zig-out/bin/wirescope lab run dns_failure
+          bash examples/automation/verify_safety_gate.sh ./zig-out/bin/wirescope
+          bash examples/automation/check_local_policy.sh ./zig-out/bin/wirescope
+
+  cross_compilation_verification:
+    name: Cross-Compilation Feasibility
+    needs: lint_and_format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Zig Compiler
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+
+      - name: Cross-compile Linux x86_64
+        run: zig build -Dtarget=x86_64-linux
+
+      - name: Cross-compile Linux ARM64
+        run: zig build -Dtarget=aarch64-linux
+
+      - name: Cross-compile Windows x86_64
+        run: zig build -Dtarget=x86_64-windows
+
+      - name: Cross-compile macOS x86_64
+        run: zig build -Dtarget=x86_64-macos
+
+      - name: Cross-compile macOS ARM64
+        run: zig build -Dtarget=aarch64-macos

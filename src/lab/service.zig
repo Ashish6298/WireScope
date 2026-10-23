@@ -194,16 +194,14 @@ pub const LabLoopbackService = struct {
 
         const response: []const u8 = switch (kind) {
             .raw_tcp => "WireScope Lab Synthetic TCP Service Active\r\n",
-            .http_mock_vulnerable =>
-            "HTTP/1.1 200 OK\r\n" ++
+            .http_mock_vulnerable => "HTTP/1.1 200 OK\r\n" ++
                 "Server: WireScope-Lab-Mock/1.0\r\n" ++
                 "Content-Type: text/plain\r\n" ++
                 "Content-Length: 21\r\n" ++
                 "Connection: close\r\n" ++
                 "\r\n" ++
                 "Lab HTTP Vulnerable\n",
-            .http_mock_hardened =>
-            "HTTP/1.1 200 OK\r\n" ++
+            .http_mock_hardened => "HTTP/1.1 200 OK\r\n" ++
                 "Server: WireScope-Lab-Mock/1.0\r\n" ++
                 "Strict-Transport-Security: max-age=31536000; includeSubDomains\r\n" ++
                 "Content-Security-Policy: default-src 'self'\r\n" ++
