@@ -1743,6 +1743,261 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         }
     }
 
+    // 21. Isolated Practice Lab Dispatcher (Milestone 13 Phase 13.1)
+    if (parsed.command == .lab) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        const action = parsed.subcommand orelse "list";
+        const base_data_dir = wirescope.storage.resolveDefaultDataDir(allocator) catch ".wirescope";
+        defer allocator.free(base_data_dir);
+        const lab_data_dir = std.fs.path.join(allocator, &[_][]const u8{ base_data_dir, "lab" }) catch ".wirescope/lab";
+        defer allocator.free(lab_data_dir);
+
+        var lab_mgr = wirescope.lab.LabManager.init(allocator, lab_data_dir);
+
+        if (std.mem.eql(u8, action, "list")) {
+            switch (parsed.format) {
+                .json => wirescope.lab.scenario.formatScenarioListJson(stdout) catch return ExitCodes.operational_failure,
+                .markdown => wirescope.lab.scenario.formatScenarioListMarkdown(stdout) catch return ExitCodes.operational_failure,
+                .terminal => wirescope.lab.scenario.formatScenarioListTerminal(stdout) catch return ExitCodes.operational_failure,
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "inspect")) {
+            const scen_id = parsed.target orelse {
+                stderr.print("Error: Scenario ID required for inspect. Usage: wirescope lab inspect <scenario_id>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const scen = wirescope.lab.scenario.findScenario(scen_id) orelse {
+                stderr.print("Error: Unknown lab scenario '{s}'. Run 'wirescope lab list' for available scenarios.\n", .{scen_id}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            switch (parsed.format) {
+                .json => wirescope.lab.scenario.formatScenarioJson(scen, stdout) catch return ExitCodes.operational_failure,
+                .markdown => wirescope.lab.scenario.formatScenarioMarkdown(scen, stdout) catch return ExitCodes.operational_failure,
+                .terminal => wirescope.lab.scenario.formatScenarioTerminal(scen, stdout) catch return ExitCodes.operational_failure,
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "setup") or std.mem.eql(u8, action, "run")) {
+            const scen_id = parsed.target orelse {
+                stderr.print("Error: Scenario ID required. Usage: wirescope lab {s} <scenario_id>\n", .{action}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            var state = lab_mgr.setupScenario(scen_id) catch |err| {
+                stderr.print("Error initializing lab scenario '{s}': {s}\n", .{ scen_id, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer state.deinit(allocator);
+
+            switch (parsed.format) {
+                .json => {
+                    stdout.print(
+                        \\{{"status":"ready","scenario_id":"{s}","title":"{s}","target":"{s}","bind_ip":"{s}","port":{d},"is_synthetic":true}}
+                        \\
+                    , .{
+                        state.scenario_id,
+                        state.scenario_title,
+                        state.target,
+                        state.bind_ip,
+                        state.port,
+                    }) catch return ExitCodes.operational_failure;
+                },
+                .markdown => {
+                    stdout.print(
+                        \\# Practice Lab Initialized: {s}
+                        \\
+                        \\> **Status**: Ready | `{s}`
+                        \\
+                        \\- **Target**: `{s}`
+                        \\- **Bound Address**: `{s}:{d}`
+                        \\- **Scenario ID**: `{s}`
+                        \\
+                    , .{
+                        state.scenario_title,
+                        wirescope.lab.synthetic.SYNTHETIC_DATA_BADGE,
+                        state.target,
+                        state.bind_ip,
+                        state.port,
+                        state.scenario_id,
+                    }) catch return ExitCodes.operational_failure;
+                },
+                .terminal => {
+                    stdout.print(
+                        \\{s} Practice lab scenario '{s}' successfully initialized.
+                        \\Target endpoint: {s}
+                        \\Bound address:   {s}:{d}
+                        \\Run 'wirescope lab inspect {s}' for step-by-step instructions.
+                        \\
+                    , .{
+                        wirescope.lab.synthetic.SYNTHETIC_DATA_BADGE,
+                        state.scenario_title,
+                        state.target,
+                        state.bind_ip,
+                        state.port,
+                        state.scenario_id,
+                    }) catch return ExitCodes.operational_failure;
+                },
+            }
+
+            // In CLI standalone execution, clean up active in-process services on exit unless run interactively
+            if (std.mem.eql(u8, action, "run")) {
+                if (!parsed.non_interactive) {
+                    stdout.print("\nPress Enter to finish scenario and clean up loopback services...", .{}) catch {};
+                    var buf: [32]u8 = undefined;
+                    _ = std.io.getStdIn().reader().readUntilDelimiterOrEof(&buf, '\n') catch null;
+                }
+                lab_mgr.cleanup() catch {};
+            } else {
+                if (lab_mgr.active_service) |s| {
+                    s.stop();
+                    lab_mgr.active_service = null;
+                }
+            }
+
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "status")) {
+            var maybe_state = lab_mgr.getStatus() catch |err| {
+                stderr.print("Error reading lab status: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+
+            if (maybe_state) |*st| {
+                defer st.deinit(allocator);
+                switch (parsed.format) {
+                    .json => {
+                        stdout.print(
+                            \\{{"active_scenario":"{s}","title":"{s}","status":"{s}","target":"{s}","bind_ip":"{s}","port":{d},"is_synthetic":true}}
+                            \\
+                        , .{
+                            st.scenario_id,
+                            st.scenario_title,
+                            st.status,
+                            st.target,
+                            st.bind_ip,
+                            st.port,
+                        }) catch return ExitCodes.operational_failure;
+                    },
+                    .markdown => {
+                        stdout.print(
+                            \\# Active Practice Lab Status
+                            \\
+                            \\> **Scenario**: {s} (`{s}`) | `{s}`
+                            \\
+                            \\- **Status**: {s}
+                            \\- **Target**: `{s}`
+                            \\- **Bound IP / Port**: `{s}:{d}`
+                            \\
+                        , .{
+                            st.scenario_title,
+                            st.scenario_id,
+                            wirescope.lab.synthetic.SYNTHETIC_DATA_BADGE,
+                            st.status,
+                            st.target,
+                            st.bind_ip,
+                            st.port,
+                        }) catch return ExitCodes.operational_failure;
+                    },
+                    .terminal => {
+                        stdout.print(
+                            \\=== Active Practice Lab Status ===
+                            \\Scenario:       {s} ({s})
+                            \\Status:         {s}
+                            \\Target:         {s}
+                            \\Bound:          {s}:{d}
+                            \\Synthetic:      {s}
+                            \\
+                        , .{
+                            st.scenario_title,
+                            st.scenario_id,
+                            st.status,
+                            st.target,
+                            st.bind_ip,
+                            st.port,
+                            wirescope.lab.synthetic.SYNTHETIC_DATA_BADGE,
+                        }) catch return ExitCodes.operational_failure;
+                    },
+                }
+            } else {
+                switch (parsed.format) {
+                    .json => {
+                        stdout.print("{{\"active_scenario\":null,\"is_synthetic\":true}}\n", .{}) catch return ExitCodes.operational_failure;
+                    },
+                    .markdown, .terminal => {
+                        stdout.print("No active practice lab scenario. Run 'wirescope lab list' to browse available exercises.\n", .{}) catch return ExitCodes.operational_failure;
+                    },
+                }
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "reset")) {
+            var st = lab_mgr.resetScenario() catch |err| {
+                stderr.print("Error resetting lab scenario: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer st.deinit(allocator);
+
+            switch (parsed.format) {
+                .json => {
+                    stdout.print("{{\"reset\":true,\"scenario_id\":\"{s}\",\"status\":\"ready\"}}\n", .{st.scenario_id}) catch return ExitCodes.operational_failure;
+                },
+                .markdown, .terminal => {
+                    stdout.print("{s} Lab scenario '{s}' reset to initial clean state.\n", .{ wirescope.lab.synthetic.SYNTHETIC_DATA_BADGE, st.scenario_id }) catch return ExitCodes.operational_failure;
+                },
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "verify")) {
+            var scen_id_to_verify: ?[]const u8 = parsed.target;
+            var active_st: ?wirescope.lab.ActiveLabState = null;
+            defer if (active_st) |*a| a.deinit(allocator);
+
+            if (scen_id_to_verify == null) {
+                active_st = lab_mgr.getStatus() catch null;
+                if (active_st) |a| {
+                    scen_id_to_verify = a.scenario_id;
+                }
+            }
+
+            const target_scen_id = scen_id_to_verify orelse {
+                stderr.print("Error: No active lab scenario to verify. Specify scenario ID: wirescope lab verify <scenario_id>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            var vres = wirescope.lab.verify.evaluateEvidence(allocator, target_scen_id, null, null) catch |err| {
+                stderr.print("Error evaluating scenario verification: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer vres.deinit(allocator);
+
+            switch (parsed.format) {
+                .json => wirescope.lab.verify.formatVerificationJson(vres, stdout) catch return ExitCodes.operational_failure,
+                .markdown => wirescope.lab.verify.formatVerificationMarkdown(vres, stdout) catch return ExitCodes.operational_failure,
+                .terminal => wirescope.lab.verify.formatVerificationTerminal(vres, stdout) catch return ExitCodes.operational_failure,
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "cleanup") or std.mem.eql(u8, action, "teardown")) {
+            lab_mgr.cleanup() catch |err| {
+                stderr.print("Error during lab cleanup: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+
+            switch (parsed.format) {
+                .json => {
+                    stdout.print("{{\"cleaned\":true,\"is_synthetic\":true}}\n", .{}) catch return ExitCodes.operational_failure;
+                },
+                .markdown, .terminal => {
+                    stdout.print("{s} WireScope lab listeners stopped and sandbox resources cleaned up.\n", .{wirescope.lab.synthetic.SYNTHETIC_DATA_BADGE}) catch return ExitCodes.operational_failure;
+                },
+            }
+            return ExitCodes.success;
+        } else {
+            stderr.print("Error: Unknown lab action '{s}'. Supported actions: list, inspect, setup, run, status, reset, verify, cleanup, teardown\n", .{action}) catch {};
+            return ExitCodes.invalid_input;
+        }
+    }
+
     // 19. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
@@ -2571,4 +2826,61 @@ test "execute discover command with preview, caps, remote authorization, and exc
     const code56 = execute(&ni_bad_file, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.operational_failure, code56);
     try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "Error opening report file") != null);
+
+    // 57: Lab list in JSON, Markdown, and Terminal formats
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_list_json_cmd = [_][]const u8{ "wirescope", "lab", "list", "--format", "json" };
+    const code57 = execute(&lab_list_json_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code57);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "dns_failure") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "synthetic_lab_fixture") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_list_term_cmd = [_][]const u8{ "wirescope", "lab", "list" };
+    const code57b = execute(&lab_list_term_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code57b);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "[SYNTHETIC_LAB_FIXTURE]") != null);
+
+    // 58: Lab inspect valid scenario
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_insp_cmd = [_][]const u8{ "wirescope", "lab", "inspect", "dns_failure" };
+    const code58 = execute(&lab_insp_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code58);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "DNS Resolution No-Answer") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Step-by-Step Instructions") != null);
+
+    // 59: Lab setup scenario
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_setup_cmd = [_][]const u8{ "wirescope", "lab", "setup", "dns_failure", "--format", "json" };
+    const code59 = execute(&lab_setup_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code59);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"status\":\"ready\"") != null);
+
+    // 60: Lab status
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_status_cmd = [_][]const u8{ "wirescope", "lab", "status", "--format", "json" };
+    const code60 = execute(&lab_status_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code60);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "dns_failure") != null);
+
+    // 61: Lab verify scenario
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_verify_cmd = [_][]const u8{ "wirescope", "lab", "verify", "dns_failure", "--format", "json" };
+    const code61 = execute(&lab_verify_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code61);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "inconclusive") != null);
+
+    // 62: Lab cleanup
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_clean_cmd = [_][]const u8{ "wirescope", "lab", "cleanup", "--format", "json" };
+    const code62 = execute(&lab_clean_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code62);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"cleaned\":true") != null);
 }

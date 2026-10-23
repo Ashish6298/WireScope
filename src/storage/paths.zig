@@ -41,6 +41,11 @@ pub const StoragePaths = struct {
         return std.fs.path.join(allocator, &[_][]const u8{ self.base_dir, "manifests" });
     }
 
+    /// Subdirectory for isolated practice lab fixtures and state
+    pub fn labDir(self: StoragePaths, allocator: std.mem.Allocator) ![]const u8 {
+        return std.fs.path.join(allocator, &[_][]const u8{ self.base_dir, "lab" });
+    }
+
     /// Ensures the full storage directory hierarchy exists
     pub fn ensureDirectoriesExist(self: StoragePaths, allocator: std.mem.Allocator) !void {
         try std.fs.cwd().makePath(self.base_dir);

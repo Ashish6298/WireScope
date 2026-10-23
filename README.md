@@ -98,7 +98,9 @@ Current Development Branch: `ashish`
 | ↳ Phase 12.1 | Implement versioned JSON reports | **COMPLETED** |
 | ↳ Phase 12.2 | Implement Markdown and terminal reports | **COMPLETED** |
 | ↳ Phase 12.3 | Make CLI output safe for scripts and local automation | **COMPLETED** |
-| **Milestone 13** | Isolated Practice Lab | Pending |
+| **Milestone 13** | **Isolated Practice Lab** | In Progress |
+| ↳ Phase 13.1 | Implement lab lifecycle and isolation | **COMPLETED** |
+| ↳ Phase 13.2 | Implement the initial diagnostic and defensive exercises | Pending |
 | **Milestone 14** | Hardening, Cross-Platform Validation, and Release Prep | Pending |
 | **Milestone 15** | GitHub Actions CI/CD (Final Milestone) | Pending |
 
@@ -141,6 +143,7 @@ Current Development Branch: `ashish`
 - [ADR 0033: Versioned JSON Reports](docs/decisions/0033-versioned-json-reports.md)
 - [ADR 0034: Markdown and Terminal Reports](docs/decisions/0034-markdown-and-terminal-reports.md)
 - [ADR 0035: CLI Automation and Scripting Contracts](docs/decisions/0035-cli-automation-and-scripting-contracts.md)
+- [ADR 0036: Practice Lab Lifecycle and Isolation](docs/decisions/0036-lab-lifecycle-and-isolation.md)
 
 ---
 
