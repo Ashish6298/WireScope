@@ -1,0 +1,60 @@
+================================================================================
+WIRESCOPE PHASE COMPLETION REPORT: MILESTONE 15 - PHASE 15.2
+================================================================================
+
+1. Phase:
+   Milestone 15 — Phase 15.2: Add Release Artifacts and GitHub Releases Automation
+
+2. Implementation Summary:
+   Delivered automated release packaging and publishing workflow under
+   `.github/workflows/release.yml`. Triggered by release tags (`v*`) or manual
+   workflow dispatch, the pipeline compiles optimized `ReleaseSafe` standalone
+   binaries for validated target architectures (`windows-x86_64`, `linux-x86_64`,
+   `macos-arm64`). It smoke tests the binary, bundles documentation (`README.md`,
+   `LICENSE`, `SECURITY.md`), computes individual and consolidated SHA-256 checksums
+   (`SHA256SUMS.txt`), verifies checksum integrity, and publishes a GitHub Release
+   without requiring paid services or custom domains. Operational rollback and recovery
+   procedures were formalized in `docs/release_recovery_and_troubleshooting.md`, and
+   a release rehearsal was validated locally using `scripts/release_rehearsal.ps1`.
+
+3. Files Changed:
+   - Created: `.github/workflows/release.yml`
+   - Created: `docs/release_recovery_and_troubleshooting.md`
+   - Created: `scripts/release_rehearsal.ps1`
+   - Created: `scripts/release_rehearsal.sh`
+
+4. Commands Executed:
+   - `powershell.exe -File scripts/release_rehearsal.ps1 -Version "0.1.0-rc1"`
+   - `zig build -Doptimize=ReleaseSafe`
+   - `wirescope version`
+   - `wirescope capabilities --format json`
+   - `Get-FileHash -Path wirescope-v0.1.0-rc1-windows-x86_64.zip -Algorithm SHA256`
+
+5. Results:
+   - Release rehearsal: Succeeded with exit code 0.
+   - SHA-256 generation and verification: 100% match.
+   - Binary smoke tests: PASSED.
+
+6. Acceptance Criteria:
+   - A test tag produces expected artifacts in a controlled release rehearsal: PASS
+   - Checksums validate against the produced files: PASS
+   - Artifact names identify OS, architecture, and version: PASS
+   - Unsupported targets are not presented as tested: PASS
+   - Release workflow uses least-privilege permissions and needs no paid service: PASS
+
+7. Platform Status:
+   - Windows x86_64: Rehearsed and validated locally.
+   - Linux x86_64: Automated in workflow matrix.
+   - macOS arm64: Automated in workflow matrix.
+
+8. Safety/Reliability Notes:
+   - Releases use `permissions: contents: write` strictly scoped to release job.
+   - Pre-release tag detection (`-rc`) marks pre-releases automatically.
+
+9. Known Limitations:
+   - Local hash manifests verify file integrity but do not verify author identity
+     without external cryptographic GPG/Sigstore signing.
+
+10. Unresolved Issues and Next Step:
+    - None. Ready for Phase 15.3 (Conduct the final v1.0 release audit).
+================================================================================

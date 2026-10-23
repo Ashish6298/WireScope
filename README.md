@@ -394,7 +394,10 @@ Current Branch: `ashish`
 | ↳ Phase 14.1 | Perform security and reliability hardening | **COMPLETED** |
 | ↳ Phase 14.2 | Validate behavior on Linux, macOS, and Windows | **COMPLETED** |
 | ↳ Phase 14.3 | Complete documentation, license, and release candidate | **COMPLETED** |
-| **Milestone 15** | GitHub Actions CI/CD (Final Milestone) | Pending |
+| **Milestone 15** | **GitHub Actions CI/CD (Final Milestone)** | **COMPLETED** |
+| ↳ Phase 15.1 | Configure continuous integration | **COMPLETED** |
+| ↳ Phase 15.2 | Add release artifacts and GitHub Releases automation | **COMPLETED** |
+| ↳ Phase 15.3 | Conduct the final v1.0 release audit | **COMPLETED** |
 
 ---
 
@@ -440,6 +443,7 @@ Current Branch: `ashish`
 - [ADR 0038: Security Hardening, Verification Engines, and Residual Risks](docs/decisions/0038-security-hardening-and-residual-risks.md)
 - [ADR 0039: Platform Support Matrix and Performance Validation](docs/decisions/0039-platform-support-matrix-and-performance-validation.md)
 - [ADR 0040: Documentation, License, and Release Candidate](docs/decisions/0040-documentation-license-and-release-candidate.md)
+- [ADR 0041: GitHub Actions CI/CD and v1.0 Release Audit](docs/decisions/0041-github-actions-ci-cd-and-v1.0-release-audit.md)
 
 ---
 
@@ -449,4 +453,5 @@ Current Branch: `ashish`
 - **Contributing Guidelines:** See [CONTRIBUTING.md](CONTRIBUTING.md) for developer requirements.
 - **Changelog:** See [CHANGELOG.md](CHANGELOG.md) for version history.
 - **Release Notes:** See [docs/release_notes_v0.1.0_rc1.md](docs/release_notes_v0.1.0_rc1.md) for Release Candidate 1 notes.
+- **Master Release Audit:** See [reports/v1.0-release-audit.txt](reports/v1.0-release-audit.txt) for the comprehensive specification audit.
 - **License:** Licensed under the [MIT License](LICENSE).
