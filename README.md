@@ -103,7 +103,7 @@ Current Development Branch: `ashish`
 | ↳ Phase 13.2 | Implement the initial diagnostic and defensive exercises | **COMPLETED** |
 | **Milestone 14** | **Hardening, Cross-Platform Validation, and Release Prep** | In Progress |
 | ↳ Phase 14.1 | Perform security and reliability hardening | **COMPLETED** |
-| ↳ Phase 14.2 | Validate behavior on Linux, macOS, and Windows | Pending |
+| ↳ Phase 14.2 | Validate behavior on Linux, macOS, and Windows | **COMPLETED** |
 | ↳ Phase 14.3 | Build the complete CLI and documentation | Pending |
 | **Milestone 15** | GitHub Actions CI/CD (Final Milestone) | Pending |
 
@@ -149,6 +149,7 @@ Current Development Branch: `ashish`
 - [ADR 0036: Practice Lab Lifecycle and Isolation](docs/decisions/0036-lab-lifecycle-and-isolation.md)
 - [ADR 0037: Initial Diagnostic and Defensive Practice Exercises](docs/decisions/0037-initial-diagnostic-and-defensive-exercises.md)
 - [ADR 0038: Security Hardening, Verification Engines, and Residual Risks](docs/decisions/0038-security-hardening-and-residual-risks.md)
+- [ADR 0039: Platform Support Matrix and Performance Validation](docs/decisions/0039-platform-support-matrix-and-performance-validation.md)
 
 ---
 
