@@ -39,7 +39,9 @@ pub fn enumerateInterfacesLinux(allocator: std.mem.Allocator) !InterfaceEnumerat
 
         // Read operstate if present
         var status: InterfaceStatus = .unknown;
-        var operstate_file = dir.openFile(try std.fmt.allocPrint(allocator, "{s}/operstate", .{entry.name}), .{}) catch null;
+        var operstate_path_buf: [128]u8 = undefined;
+        const operstate_path = std.fmt.bufPrint(&operstate_path_buf, "{s}/operstate", .{entry.name}) catch null;
+        var operstate_file = if (operstate_path) |p| dir.openFile(p, .{}) catch null else null;
         if (operstate_file) |*f| {
             defer f.close();
             var state_buf: [32]u8 = undefined;

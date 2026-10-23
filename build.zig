@@ -20,6 +20,8 @@ pub fn build(b: *std.Build) void {
     if (target.result.os.tag == .windows) {
         lib.linkSystemLibrary("iphlpapi");
         lib.linkSystemLibrary("ws2_32");
+    } else if (target.result.os.tag == .macos) {
+        lib.linkLibC();
     }
     b.installArtifact(lib);
 
@@ -34,6 +36,8 @@ pub fn build(b: *std.Build) void {
     if (target.result.os.tag == .windows) {
         exe.linkSystemLibrary("iphlpapi");
         exe.linkSystemLibrary("ws2_32");
+    } else if (target.result.os.tag == .macos) {
+        exe.linkLibC();
     }
     b.installArtifact(exe);
 
@@ -55,6 +59,8 @@ pub fn build(b: *std.Build) void {
     if (target.result.os.tag == .windows) {
         lib_unit_tests.linkSystemLibrary("iphlpapi");
         lib_unit_tests.linkSystemLibrary("ws2_32");
+    } else if (target.result.os.tag == .macos) {
+        lib_unit_tests.linkLibC();
     }
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
@@ -67,6 +73,8 @@ pub fn build(b: *std.Build) void {
     if (target.result.os.tag == .windows) {
         exe_unit_tests.linkSystemLibrary("iphlpapi");
         exe_unit_tests.linkSystemLibrary("ws2_32");
+    } else if (target.result.os.tag == .macos) {
+        exe_unit_tests.linkLibC();
     }
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 

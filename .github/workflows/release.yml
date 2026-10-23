@@ -44,6 +44,16 @@ jobs:
         with:
           version: 0.13.0
 
+      - name: Setup macOS SDK Environment
+        if: runner.os == 'macOS'
+        run: |
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          fi
+          SDK_PATH=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || xcrun --show-sdk-path)
+          echo "SDKROOT=${SDK_PATH}" >> $GITHUB_ENV
+          rm -rf ~/.cache/zig
+
       - name: Determine Version Tag
         id: vars
         shell: bash
