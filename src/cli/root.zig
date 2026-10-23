@@ -1781,9 +1781,9 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
                 .terminal => wirescope.lab.scenario.formatScenarioTerminal(scen, stdout) catch return ExitCodes.operational_failure,
             }
             return ExitCodes.success;
-        } else if (std.mem.eql(u8, action, "setup") or std.mem.eql(u8, action, "run")) {
+        } else if (std.mem.eql(u8, action, "setup")) {
             const scen_id = parsed.target orelse {
-                stderr.print("Error: Scenario ID required. Usage: wirescope lab {s} <scenario_id>\n", .{action}) catch {};
+                stderr.print("Error: Scenario ID required. Usage: wirescope lab setup <scenario_id>\n", .{}) catch {};
                 return ExitCodes.invalid_input;
             };
 
@@ -1843,19 +1843,33 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
                 },
             }
 
-            // In CLI standalone execution, clean up active in-process services on exit unless run interactively
-            if (std.mem.eql(u8, action, "run")) {
-                if (!parsed.non_interactive) {
-                    stdout.print("\nPress Enter to finish scenario and clean up loopback services...", .{}) catch {};
-                    var buf: [32]u8 = undefined;
-                    _ = std.io.getStdIn().reader().readUntilDelimiterOrEof(&buf, '\n') catch null;
-                }
-                lab_mgr.cleanup() catch {};
-            } else {
-                if (lab_mgr.active_service) |s| {
-                    s.stop();
-                    lab_mgr.active_service = null;
-                }
+            if (lab_mgr.active_service) |s| {
+                s.stop();
+                lab_mgr.active_service = null;
+            }
+
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "run")) {
+            const scen_id_str = parsed.target orelse {
+                stderr.print("Error: Scenario ID required. Usage: wirescope lab run <scenario_id>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const scen = wirescope.lab.scenario.findScenario(scen_id_str) orelse {
+                stderr.print("Error: Unknown lab scenario '{s}'. Run 'wirescope lab list' for available scenarios.\n", .{scen_id_str}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            var ex_res = wirescope.lab.exercises.runExercise(allocator, scen.id, lab_data_dir) catch |err| {
+                stderr.print("Error running lab exercise '{s}': {s}\n", .{ scen_id_str, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer ex_res.deinit(allocator);
+
+            switch (parsed.format) {
+                .json => wirescope.lab.exercises.formatExerciseJson(ex_res, stdout) catch return ExitCodes.operational_failure,
+                .markdown => wirescope.lab.exercises.formatExerciseMarkdown(ex_res, stdout) catch return ExitCodes.operational_failure,
+                .terminal => wirescope.lab.exercises.formatExerciseTerminal(ex_res, stdout) catch return ExitCodes.operational_failure,
             }
 
             return ExitCodes.success;
@@ -2883,4 +2897,56 @@ test "execute discover command with preview, caps, remote authorization, and exc
     const code62 = execute(&lab_clean_cmd, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.success, code62);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"cleaned\":true") != null);
+
+    // 63: Exercise 1: dns_failure run
+    out_fbs.reset();
+    err_fbs.reset();
+    const ex1_cmd = [_][]const u8{ "wirescope", "lab", "run", "dns_failure", "--format", "json" };
+    const code63 = execute(&ex1_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code63);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-FINDING-DNS-FAILURE") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "expected_evidence") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "interpretation") != null);
+
+    // 64: Exercise 2: tcp_refusal_timeout run
+    out_fbs.reset();
+    err_fbs.reset();
+    const ex2_cmd = [_][]const u8{ "wirescope", "lab", "run", "tcp_refusal_timeout", "--format", "json" };
+    const code64 = execute(&ex2_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code64);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-FINDING-TCP-REFUSAL") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "limitations") != null);
+
+    // 65: Exercise 3: tls_cert_issues run
+    out_fbs.reset();
+    err_fbs.reset();
+    const ex3_cmd = [_][]const u8{ "wirescope", "lab", "run", "tls_cert_issues", "--format", "json" };
+    const code65 = execute(&ex3_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code65);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-FINDING-TLS-SAN-MISMATCH") != null);
+
+    // 66: Exercise 4: unexpected_listener run
+    out_fbs.reset();
+    err_fbs.reset();
+    const ex4_cmd = [_][]const u8{ "wirescope", "lab", "run", "unexpected_listener", "--format", "json" };
+    const code66 = execute(&ex4_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code66);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-FINDING-LISTENER-UNAPPROVED") != null);
+
+    // 67: Exercise 5: http_security_header_violation run
+    out_fbs.reset();
+    err_fbs.reset();
+    const ex5_cmd = [_][]const u8{ "wirescope", "lab", "run", "http_security_header_violation", "--format", "json" };
+    const code67 = execute(&ex5_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code67);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-FINDING-HTTP-MISSING-SECURITY-HEADERS") != null);
+
+    // 68: Exercise 6: remediation_verification run
+    out_fbs.reset();
+    err_fbs.reset();
+    const ex6_cmd = [_][]const u8{ "wirescope", "lab", "run", "remediation_verification", "--format", "json" };
+    const code68 = execute(&ex6_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code68);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"remediation_verified\": true") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"policy_eval_outcome\": \"pass\"") != null);
 }

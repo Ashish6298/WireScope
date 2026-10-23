@@ -49,6 +49,10 @@ pub const LabScenario = struct {
     difficulty: []const u8,
     description: []const u8,
     objective: []const u8,
+    expected_evidence: []const u8,
+    interpretation: []const u8,
+    limitations: []const u8,
+    resolution: []const u8,
     instructions: []const []const u8,
     hints: []const []const u8,
     expected_observations: []const ExpectedObservation,
@@ -71,6 +75,10 @@ pub const SCENARIO_REGISTRY = [_]LabScenario{
         .difficulty = "Beginner",
         .description = "Simulate and diagnose DNS failure conditions (unresolvable synthetic domain names and simulated timeouts) without sending queries to external root servers.",
         .objective = "Practice identifying NXDOMAIN errors versus resolver timeouts and verifying deterministic query outcome classifications.",
+        .expected_evidence = "Zero IP address answers returned; resolution status 'failed' with failure category NXDOMAIN or Timeout.",
+        .interpretation = "The requested domain name does not exist on authoritative servers or the resolver failed to reach authoritative root servers.",
+        .limitations = "Local DNS diagnostics cannot determine whether an upstream network device is deliberately filtering traffic versus true zone non-existence.",
+        .resolution = "Verify hostname spelling, inspect authoritative zone records, or verify local DNS resolver configuration.",
         .instructions = &.{
             "Execute a diagnostic DNS query against the synthetic lab domain 'unresolvable-lab.test'.",
             "Observe the failure outcome and classify whether it is NXDOMAIN, No Answer, or Timeout.",
@@ -105,6 +113,10 @@ pub const SCENARIO_REGISTRY = [_]LabScenario{
         .difficulty = "Beginner",
         .description = "Distinguish active TCP RST/connection refusal on closed loopback ports from non-responding endpoints that cause bounded timeouts.",
         .objective = "Learn to reliably differentiate between 'Connection Refused' (service down/closed port) and 'Connection Timeout' (silent drop/unreachable).",
+        .expected_evidence = "Immediate TCP connection error classified as 'refusal' with OS error WSAECONNREFUSED / ECONNREFUSED in <5ms.",
+        .interpretation = "The host network stack is active and responsive, but no application daemon is bound to and listening on the designated port.",
+        .limitations = "Some stateful firewalls are configured to inject TCP RST packets to disguise packet rejection as a closed port.",
+        .resolution = "Verify that the target service daemon is started and actively bound to the expected interface and port.",
         .instructions = &.{
             "Set up the scenario to allocate a closed loopback test endpoint.",
             "Run a TCP diagnostic probe against '127.0.0.1:<port>'.",
@@ -139,6 +151,10 @@ pub const SCENARIO_REGISTRY = [_]LabScenario{
         .difficulty = "Intermediate",
         .description = "Evaluate simulated TLS certificate anomalies using isolated synthetic fixtures without altering system-wide trust stores.",
         .objective = "Detect expired certificates and SAN (Subject Alternative Name) hostname mismatches and generate structured findings.",
+        .expected_evidence = "TLS handshake inspection identifies SAN mismatch (requested host not in SAN list ['mismatch.lab.test']) or notAfter date prior to current time.",
+        .interpretation = "Browsers and API clients will abort TLS handshakes to this endpoint due to trust or identity mismatch.",
+        .limitations = "Test-only self-signed certificates lack a trusted CA chain and are intended solely for local validation exercises.",
+        .resolution = "Generate or issue a new X.509 certificate that includes the canonical hostname in 'subjectAltName' and has a valid date range.",
         .instructions = &.{
             "Start the TLS lab service using 'wirescope lab setup tls_cert_issues'.",
             "Diagnose the loopback HTTPS/TLS endpoint on the allocated port.",
@@ -173,6 +189,10 @@ pub const SCENARIO_REGISTRY = [_]LabScenario{
         .difficulty = "Intermediate",
         .description = "Spawn a controlled loopback listener and compare local listening service inventory against an approved baseline.",
         .objective = "Detect unexpected open ports and newly introduced listening daemons using deterministic baseline diffing.",
+        .expected_evidence = "Baseline diff marks new listener as 'added'; exposure policy generates unapproved listener finding.",
+        .interpretation = "An unapproved service has opened a listening socket on the host, increasing the attack surface.",
+        .limitations = "Process attribution requires administrative privileges on some operating systems; unprivileged execution identifies port and IP but may not identify binary path.",
+        .resolution = "Terminate unauthorized process or, if legitimate, approve the service into the baseline profile.",
         .instructions = &.{
             "Establish an initial exposure baseline of approved local listening services.",
             "Activate the scenario listener with 'wirescope lab setup unexpected_listener'.",
@@ -207,6 +227,10 @@ pub const SCENARIO_REGISTRY = [_]LabScenario{
         .difficulty = "Beginner",
         .description = "Audit an active loopback HTTP service missing required defensive headers (HSTS, CSP, X-Frame-Options) and evaluate against security policy.",
         .objective = "Identify missing HTTP defensive security headers and generate policy failure reports without accessing external servers.",
+        .expected_evidence = "HTTP observation captures 200 OK with missing HSTS, CSP, and X-Frame-Options; policy check flags failures.",
+        .interpretation = "Absence of these headers leaves web clients vulnerable to MIME sniffing, iframe embedding (clickjacking), and protocol downgrade attacks.",
+        .limitations = "Header inspection only audits outer HTTP transport metadata, not the security of underlying application code or authorization logic.",
+        .resolution = "Configure web server or reverse proxy to return required defensive HTTP security headers (HSTS, CSP, X-Frame-Options, X-Content-Type-Options).",
         .instructions = &.{
             "Launch the mock HTTP service using 'wirescope lab setup http_security_header_violation'.",
             "Run an HTTP audit against the assigned loopback endpoint.",
@@ -241,6 +265,10 @@ pub const SCENARIO_REGISTRY = [_]LabScenario{
         .difficulty = "Advanced",
         .description = "Remediate a non-compliant service configuration (e.g. inject security headers and restrict binding) and verify compliance in a second assessment.",
         .objective = "Demonstrate closed-loop security posture improvement by capturing before-and-after assessments and validating remediation resolution.",
+        .expected_evidence = "Assessment 1 shows policy violations; Assessment 2 shows 100% policy pass; baseline comparison confirms prior findings are resolved.",
+        .interpretation = "Remediation changes are verifiable and measurable: the diff proves the configuration fix took effect.",
+        .limitations = "Remediation verification proves current compliance; automated regression testing is required to prevent configuration drift over time.",
+        .resolution = "Integrate baseline checks into CI/CD deployment pipelines.",
         .instructions = &.{
             "Setup the initial vulnerable service state.",
             "Run baseline assessment capturing the initial findings.",
@@ -299,6 +327,10 @@ pub fn formatScenarioTerminal(scenario: LabScenario, writer: anytype) !void {
     try writer.print("Schema Ver:   v{d}\n", .{scenario.schema_version});
     try writer.print("\nObjective:\n  {s}\n", .{scenario.objective});
     try writer.print("\nDescription:\n  {s}\n", .{scenario.description});
+    try writer.print("\nExpected Evidence:\n  {s}\n", .{scenario.expected_evidence});
+    try writer.print("\nInterpretation:\n  {s}\n", .{scenario.interpretation});
+    try writer.print("\nLimitations:\n  {s}\n", .{scenario.limitations});
+    try writer.print("\nResolution:\n  {s}\n", .{scenario.resolution});
 
     try writer.print("\nStep-by-Step Instructions:\n", .{});
     for (scenario.instructions, 1..) |inst, i| {
@@ -341,6 +373,10 @@ pub fn formatScenarioMarkdown(scenario: LabScenario, writer: anytype) !void {
 
     try writer.print("## Objective\n{s}\n\n", .{scenario.objective});
     try writer.print("## Description\n{s}\n\n", .{scenario.description});
+    try writer.print("## Expected Evidence\n{s}\n\n", .{scenario.expected_evidence});
+    try writer.print("## Technical Interpretation\n{s}\n\n", .{scenario.interpretation});
+    try writer.print("## Operational Limitations\n{s}\n\n", .{scenario.limitations});
+    try writer.print("## Defensive Resolution\n{s}\n\n", .{scenario.resolution});
 
     try writer.print("## Step-by-Step Instructions\n", .{});
     for (scenario.instructions, 1..) |inst, i| {
@@ -378,6 +414,10 @@ pub fn formatScenarioJson(scenario: LabScenario, writer: anytype) !void {
         \\  "difficulty": "{s}",
         \\  "description": "{s}",
         \\  "objective": "{s}",
+        \\  "expected_evidence": "{s}",
+        \\  "interpretation": "{s}",
+        \\  "limitations": "{s}",
+        \\  "resolution": "{s}",
         \\  "target_synthetic": "{s}",
         \\  "requires_service": {s},
         \\  "instructions": [
@@ -390,6 +430,10 @@ pub fn formatScenarioJson(scenario: LabScenario, writer: anytype) !void {
         scenario.difficulty,
         scenario.description,
         scenario.objective,
+        scenario.expected_evidence,
+        scenario.interpretation,
+        scenario.limitations,
+        scenario.resolution,
         scenario.target_synthetic,
         if (scenario.requires_service) "true" else "false",
     });
@@ -526,11 +570,15 @@ test "scenario: findScenario resolves by string and alias" {
 }
 
 test "scenario: format functions output valid text" {
-    var buf: [2048]u8 = undefined;
+    var buf: [4096]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
 
     const s = findScenario("dns_failure").?;
     try formatScenarioJson(s, fbs.writer());
     try testing.expect(fbs.getWritten().len > 0);
     try testing.expect(std.mem.indexOf(u8, fbs.getWritten(), "dns_failure") != null);
+    try testing.expect(std.mem.indexOf(u8, fbs.getWritten(), "expected_evidence") != null);
+    try testing.expect(std.mem.indexOf(u8, fbs.getWritten(), "interpretation") != null);
+    try testing.expect(std.mem.indexOf(u8, fbs.getWritten(), "limitations") != null);
+    try testing.expect(std.mem.indexOf(u8, fbs.getWritten(), "resolution") != null);
 }
