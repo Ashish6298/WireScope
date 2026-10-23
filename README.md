@@ -101,7 +101,10 @@ Current Development Branch: `ashish`
 | **Milestone 13** | **Isolated Practice Lab** | **COMPLETED** |
 | ↳ Phase 13.1 | Implement lab lifecycle and isolation | **COMPLETED** |
 | ↳ Phase 13.2 | Implement the initial diagnostic and defensive exercises | **COMPLETED** |
-| **Milestone 14** | Hardening, Cross-Platform Validation, and Release Prep | Pending |
+| **Milestone 14** | **Hardening, Cross-Platform Validation, and Release Prep** | In Progress |
+| ↳ Phase 14.1 | Perform security and reliability hardening | **COMPLETED** |
+| ↳ Phase 14.2 | Validate behavior on Linux, macOS, and Windows | Pending |
+| ↳ Phase 14.3 | Build the complete CLI and documentation | Pending |
 | **Milestone 15** | GitHub Actions CI/CD (Final Milestone) | Pending |
 
 ---
@@ -145,6 +148,7 @@ Current Development Branch: `ashish`
 - [ADR 0035: CLI Automation and Scripting Contracts](docs/decisions/0035-cli-automation-and-scripting-contracts.md)
 - [ADR 0036: Practice Lab Lifecycle and Isolation](docs/decisions/0036-lab-lifecycle-and-isolation.md)
 - [ADR 0037: Initial Diagnostic and Defensive Practice Exercises](docs/decisions/0037-initial-diagnostic-and-defensive-exercises.md)
+- [ADR 0038: Security Hardening, Verification Engines, and Residual Risks](docs/decisions/0038-security-hardening-and-residual-risks.md)
 
 ---
 
