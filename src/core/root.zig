@@ -42,6 +42,9 @@ pub const FindingStatus = models.FindingStatus;
 pub const ServiceObservation = models.ServiceObservation;
 pub const Asset = models.Asset;
 
+pub const hardening = @import("hardening.zig");
+pub const benchmarks = @import("benchmarks.zig");
+
 pub const Version = struct {
     pub const major: u32 = 0;
     pub const minor: u32 = 1;
@@ -57,6 +60,8 @@ test "core root re-exports compile and test cleanly" {
     _ = stats;
     _ = results;
     _ = models;
+    _ = hardening;
+    _ = benchmarks;
 
     try testing.expectEqualStrings("0.1.0-dev", Version.string);
     try testing.expect(OutcomeCategory.success.isSuccess());

@@ -16,6 +16,7 @@ pub fn printRootHelp(writer: anytype) !void {
         \\  policy        Evaluate local security rules and exposure policies
         \\  history       Query, inspect, compare, and prune assessment history
         \\  manifest      Verify report artifact integrity manifests and detect tampering
+        \\  report        Generate, validate, and normalize versioned reports
         \\  lab           Execute reproducible local practice lab scenarios
         \\  capabilities  Inspect platform capabilities and supported features
         \\  version       Display WireScope version and compiler information
@@ -218,6 +219,31 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
             \\  SHA-256 digests verify local integrity and detect modified/missing files.
             \\  A local hash alone does NOT prove author identity or protect against
             \\  an adversary with write access to both report and manifest.
+            \\
+        , .{});
+    } else if (std.mem.eql(u8, cmd, "report")) {
+        try writer.print(
+            \\wirescope report — Assessment Reporting, Markdown & Terminal Generation
+            \\
+            \\Usage:
+            \\  wirescope report <action> [target] [options]
+            \\
+            \\Actions:
+            \\  validate <file.json>    Validate JSON report against versioned schema
+            \\  normalize <file.json>   Normalize volatile fields in report for golden testing
+            \\  markdown <file.json>    Render readable GitHub Flavored Markdown report
+            \\  terminal <file.json>    Render formatted terminal summary report
+            \\  export <file.json>      Export report in specified --format (terminal, json, markdown)
+            \\
+            \\Options:
+            \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\  -o, --output <path>     Write output to specified file path (safe atomic write)
+            \\      --force             Allow overwriting existing output file
+            \\      --redact            Redact credentials and sensitive patterns
+            \\
+            \\Notes:
+            \\  Redaction reduces report reproducibility during audit verification.
+            \\  Observations are strictly distinguished from security findings.
             \\
         , .{});
     } else if (std.mem.eql(u8, cmd, "lab")) {

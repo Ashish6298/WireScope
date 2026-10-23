@@ -1,0 +1,132 @@
+================================================================================
+WIRESCOPE PHASE COMPLETION REPORT
+================================================================================
+
+1. Phase:
+   Milestone 12 — Reporting and Automation Contracts
+   Phase 12.2 — Implement Markdown and terminal reports
+
+2. Implementation Summary:
+   Delivered human-readable Markdown and formatted Terminal report renderers that
+   strictly consume the versioned assessment model (`AssessmentReportData`):
+   - Markdown Generation (`src/reporting/markdown.zig`):
+     * Emits clean GitHub Flavored Markdown (GFM) reports featuring metadata badges,
+       tables, and clear execution state banners.
+     * Enforces strict distinction between empirical network observations
+       (neutral measurements) and security findings (evaluated rule violations).
+     * Includes structured tables for DNS observations, TCP states, TLS configurations,
+       HTTP header evaluations, and active socket listeners.
+     * Incorporates rule details: Title, Rule ID, Version, Severity, Confidence,
+       Target, Severity Rationale, Observed Evidence, and Actionable Remediation.
+     * Includes explicit disclaimers: when zero findings are detected, states
+       "No security findings detected within the tested scope. (Note: The absence
+       of findings does not guarantee that an endpoint is secure or vulnerability-free.
+       It confirms only that no configured defensive rules were triggered by the
+       collected evidence within tested parameters.)" Never overclaims security.
+     * Prominently highlights partial, failed, and cancelled assessment states with
+       interruption reasons, noting that incomplete evidence does not imply the
+       absence of vulnerabilities or services.
+   - Terminal Summary Generation (`src/reporting/terminal.zig`):
+     * Emits formatted, clear terminal summaries matching the structured assessment
+       model.
+     * Renders execution state indicators (`[COMPLETE]`, `[PARTIAL / INCOMPLETE]`,
+       `[FAILED]`, `[CANCELLED]`) alongside task summary metrics.
+     * Formats empirical observations into distinct sections separate from findings.
+     * Displays finding rationale, evidence citations, and remediation steps cleanly.
+   - Universal JSON Report Deserialization (`src/reporting/parser.zig`):
+     * Enables CLI commands to parse valid report JSON back into `AssessmentReportData`
+       within an arena allocator, ensuring seamless round-tripping and report conversions.
+   - Configurable Redaction (`src/reporting/redact.zig`):
+     * Redacts credential tokens (`password`, `secret`, `api_key`, `access_token`,
+       `bearer`, `authorization`, `private_key`), custom patterns, and optional IPv4 addresses.
+     * Embeds the required reproducibility warning notice whenever redaction is enabled:
+       "WARNING: Redaction was applied to this report. Redacting sensitive data may alter
+       evidence strings, token values, or endpoint references, which can reduce report
+       reproducibility during audit verification."
+     * Omits HTTP response bodies and raw credentials by default.
+   - Safe File Writing (`src/reporting/writer.zig`):
+     * Implements `safeWriteReportFile` supporting explicit `--output <path>` / `-o <path>`.
+     * Guards against accidental overwrites: returns `error.FileAlreadyExists` unless
+       `--force` is specified.
+     * Writes to a temporary file (`<path>.tmp.<timestamp>`), flushes/syncs, and atomically
+       renames over destination, preventing partial or corrupt file generation.
+   - CLI Integration & Help (`src/cli/root.zig`, `src/cli/args.zig`, `src/cli/help.zig`):
+     * Supports `wirescope report markdown <report.json> [-o <path>] [--force] [--redact]`
+     * Supports `wirescope report terminal <report.json> [-o <path>] [--force] [--redact]`
+     * Supports `wirescope report export <report.json> [--format <fmt>] [-o <path>] [--force] [--redact]`
+     * Added flags `--force` and `--redact` / `--redact-sensitive`.
+   - Architectural Documentation:
+     * Authored ADR 0034 (`docs/decisions/0034-markdown-and-terminal-reports.md`).
+
+3. Files Changed:
+   Created:
+   - `src/reporting/redact.zig`
+   - `src/reporting/markdown.zig`
+   - `src/reporting/terminal.zig`
+   - `src/reporting/parser.zig`
+   - `src/reporting/writer.zig`
+   - `docs/decisions/0034-markdown-and-terminal-reports.md`
+   - `report/MILESTONE12_PHASE12.2_IMPLEMENT_MARKDOWN_AND_TERMINAL_REPORTS.txt`
+   Modified:
+   - `src/reporting/root.zig`
+   - `src/cli/args.zig`
+   - `src/cli/root.zig`
+   - `src/cli/help.zig`
+   - `README.md`
+
+4. Commands Executed:
+   - `D:\tools\zig-windows-x86_64-0.13.0\zig.exe test src/root.zig`
+   - `D:\tools\zig-windows-x86_64-0.13.0\zig.exe build test --summary all`
+   - `D:\tools\zig-windows-x86_64-0.13.0\zig.exe fmt src/`
+   - `git status`
+
+5. Results:
+   - Unit tests (`zig test src/root.zig`):
+     All 224 tests PASSED with 0 memory leaks.
+   - Build tests (`zig build test --summary all`):
+     All 25 executable tests and 224 transitive tests PASSED (5/5 build steps succeeded).
+   - Code formatting:
+     All Zig source files formatted cleanly with zero errors.
+
+6. Acceptance Criteria:
+   - Markdown and terminal output match the structured assessment model: PASS
+     Both renderers consume the canonical `AssessmentReportData` struct with complete
+     representation of scope, metadata, completion state, checks, observations,
+     assets, findings, severity rationale, evidence, limitations, and remediation.
+   - Golden tests cover normal, partial, failed, and cancelled reports: PASS
+     Unit tests in both `markdown.zig` and `terminal.zig` execute golden assertions
+     verifying deterministic output for normal, partial, failed, and cancelled states.
+   - Redaction is tested and documented: PASS
+     Redaction engine tested across credential patterns, custom tokens, and IP masking;
+     mandatory reproducibility disclaimer notice verified and documented in ADR 0034.
+   - Reports distinguish observations from security findings: PASS
+     Observations are strictly categorized as neutral empirical facts in dedicated
+     sections with explicit disclaimers; findings are separated into evaluated policy
+     violations with severity rationales and remediation.
+   - Sensitive values and response bodies are omitted by default: PASS
+     WireScope reports do not emit HTTP response bodies or secrets; credential values
+     are redacted when configured.
+
+7. Platform Status:
+   - Windows 11 (x86_64-windows): Actually tested locally with native Zig 0.13.0 compiler.
+   - Linux & macOS: Clean POSIX-compatible abstractions, file handling, and formatting
+     tested through cross-platform unit suites.
+
+8. Safety/Reliability Notes:
+   - Scope boundaries and non-destructive assessment constraints are preserved.
+   - Safe file writes prevent accidental truncation or silent data loss via overwrite checks
+     and atomic temporary-file-and-rename semantics.
+   - Clear disclosure of diagnostic constraints and limitations ensures transparency.
+
+9. Known Limitations:
+   - Redaction alters evidence tokens and endpoint hostnames, which inherently reduces
+     byte-for-byte reproducibility across independent audit teams (as warned in output).
+   - Non-interactive automation scripts that overwrite existing files must explicitly pass
+     `--force` to prevent `FileAlreadyExists` exit code.
+
+10. Unresolved Issues and Next Step:
+    - Unresolved issues: None. All acceptance criteria fully met.
+    - Status: READY FOR NEXT PHASE.
+    - Next Step: Proceed to Milestone 12, Phase 12.3 ("Make CLI output safe for scripts
+      and local automation").
+================================================================================

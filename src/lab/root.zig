@@ -1,21 +1,30 @@
 const std = @import("std");
 const testing = std.testing;
 
-pub const LabScenarioId = enum {
-    dns_failure,
-    tcp_refusal_timeout,
-    tls_cert_issues,
-    unexpected_listener,
-    http_security_header_violation,
-    remediation_verification,
-};
+pub const synthetic = @import("synthetic.zig");
+pub const scenario = @import("scenario.zig");
+pub const service = @import("service.zig");
+pub const manager = @import("manager.zig");
+pub const verify = @import("verify.zig");
+pub const exercises = @import("exercises.zig");
 
-pub const ScenarioConfig = struct {
-    bind_address: []const u8 = "127.0.0.1",
-    port: u16 = 0,
-};
+pub const LabScenarioId = scenario.LabScenarioId;
+pub const LabScenario = scenario.LabScenario;
+pub const ExpectedObservation = scenario.ExpectedObservation;
+pub const LabLoopbackService = service.LabLoopbackService;
+pub const ServiceKind = service.ServiceKind;
+pub const LabManager = manager.LabManager;
+pub const ActiveLabState = manager.ActiveLabState;
+pub const VerificationResult = verify.VerificationResult;
+pub const VerificationOutcome = verify.VerificationOutcome;
+pub const ExerciseResult = exercises.ExerciseResult;
+pub const runExercise = exercises.runExercise;
 
-test "lab definitions compile" {
-    const scenario = LabScenarioId.dns_failure;
-    try testing.expectEqual(LabScenarioId.dns_failure, scenario);
+test "lab root module integration" {
+    _ = synthetic;
+    _ = scenario;
+    _ = service;
+    _ = manager;
+    _ = verify;
+    _ = exercises;
 }

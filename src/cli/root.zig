@@ -961,6 +961,9 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
                 prof = wirescope.assessment.BuiltinProfiles.local_security_audit;
             } else if (std.mem.eql(u8, prof_name, "loopback-diagnostics") or std.mem.eql(u8, prof_name, "loopback") or std.mem.eql(u8, prof_name, "diag")) {
                 prof = wirescope.assessment.BuiltinProfiles.loopback_diagnostic;
+            } else {
+                stderr.print("Error: Unknown or unsupported assessment profile '{s}'. Supported profiles: loopback-diagnostics, local-security-audit\n", .{prof_name}) catch {};
+                return ExitCodes.invalid_input;
             }
         }
 
@@ -972,6 +975,20 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         var result = runner.run(prof, .{
             .mode = .fixture,
         }) catch |err| {
+            if (err == error.MissingAuthorizationAcknowledgement or
+                err == error.ExcessiveOperationCount or
+                err == error.ExcessiveHostCount or
+                err == error.ExcessivePortCount or
+                err == error.ExcessiveCidrRange or
+                err == error.MalformedHostname or
+                err == error.MalformedIpAddress or
+                err == error.MalformedCidr or
+                err == error.EmptyTargets or
+                err == error.AllTargetsExcluded)
+            {
+                stderr.print("Error: Assessment scope authorization failed ({s}). Remote targets require explicit authorization (--confirm-authorized).\n", .{@errorName(err)}) catch {};
+                return ExitCodes.invalid_input;
+            }
             stderr.print("Error: Assessment execution failed: {s}\n", .{@errorName(err)}) catch {};
             return ExitCodes.operational_failure;
         };
@@ -983,7 +1000,8 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
             .markdown => result.toMarkdown(stdout) catch return ExitCodes.operational_failure,
         }
 
-        if (result.status == .failed or result.status == .cancelled) return ExitCodes.operational_failure;
+        if (result.status == .cancelled) return ExitCodes.cancelled;
+        if (result.status == .failed) return ExitCodes.operational_failure;
         if (result.findings.items.len > 0) return ExitCodes.findings_or_violations;
         return ExitCodes.success;
     }
@@ -1438,6 +1456,558 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
             return ExitCodes.success;
         } else {
             stderr.print("Error: Unknown manifest action '{s}'. Supported actions: verify, inspect\n", .{action}) catch {};
+            return ExitCodes.invalid_input;
+        }
+    }
+
+    // 20. Versioned JSON Reports & Schema Validation dispatch (Milestone 12 Phase 12.1)
+    if (parsed.command == .report and (parsed.subcommand == null or !std.mem.eql(u8, parsed.subcommand.?, "manifest"))) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        const action = parsed.subcommand orelse "validate";
+        const file_path = parsed.target;
+
+        if (std.mem.eql(u8, action, "validate")) {
+            const target_file = file_path orelse {
+                stderr.print("Error: Report file path required for validation. Usage: wirescope report validate <report.json>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(target_file, .{}) catch |err| {
+                stderr.print("Error opening report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const content = file.readToEndAlloc(allocator, 50 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(content);
+
+            wirescope.reporting.validateReportJson(allocator, content) catch |err| {
+                stderr.print("Report validation failed for '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            switch (parsed.format) {
+                .terminal => {
+                    stdout.print("Report '{s}' successfully validated against schema v{d}.\n", .{
+                        target_file,
+                        wirescope.reporting.REPORT_SCHEMA_VERSION,
+                    }) catch return ExitCodes.operational_failure;
+                },
+                .json => {
+                    stdout.print(
+                        \\{{"status":"valid","schema_version":{d},"file":"{s}"}}
+                        \\
+                    , .{
+                        wirescope.reporting.REPORT_SCHEMA_VERSION,
+                        target_file,
+                    }) catch return ExitCodes.operational_failure;
+                },
+                .markdown => {
+                    stdout.print(
+                        \\# Report Validation: SUCCESS
+                        \\
+                        \\- **File:** `{s}`
+                        \\- **Schema Version:** `{d}`
+                        \\- **Validation:** **VALID**
+                        \\
+                    , .{
+                        target_file,
+                        wirescope.reporting.REPORT_SCHEMA_VERSION,
+                    }) catch return ExitCodes.operational_failure;
+                },
+            }
+
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "normalize")) {
+            const target_file = file_path orelse {
+                stderr.print("Error: Report file path required for normalization. Usage: wirescope report normalize <report.json>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(target_file, .{}) catch |err| {
+                stderr.print("Error opening report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const content = file.readToEndAlloc(allocator, 50 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(content);
+
+            const normalized = wirescope.reporting.normalizeJsonReport(allocator, content) catch |err| {
+                stderr.print("Report normalization failed for '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+            defer allocator.free(normalized);
+
+            if (parsed.output_path) |out_p| {
+                wirescope.reporting.safeWriteReportFile(allocator, out_p, normalized, parsed.force) catch |err| {
+                    if (err == error.FileAlreadyExists) {
+                        stderr.print("Error: Output file '{s}' already exists. Use --force to overwrite.\n", .{out_p}) catch {};
+                        return ExitCodes.invalid_input;
+                    }
+                    stderr.print("Error writing report file '{s}': {s}\n", .{ out_p, @errorName(err) }) catch {};
+                    return ExitCodes.operational_failure;
+                };
+                stdout.print("Normalized report written to '{s}'.\n", .{out_p}) catch return ExitCodes.operational_failure;
+            } else {
+                stdout.writeAll(normalized) catch return ExitCodes.operational_failure;
+                stdout.writeAll("\n") catch return ExitCodes.operational_failure;
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "markdown") or std.mem.eql(u8, action, "md")) {
+            const target_file = file_path orelse {
+                stderr.print("Error: Report file path required. Usage: wirescope report markdown <report.json> [-o <path>] [--force] [--redact]\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(target_file, .{}) catch |err| {
+                stderr.print("Error opening report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const raw_content = file.readToEndAlloc(allocator, 50 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(raw_content);
+
+            var parsed_report = wirescope.reporting.parseReportFromJson(allocator, raw_content) catch |err| {
+                stderr.print("Failed to parse report '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+            defer parsed_report.deinit();
+
+            var rep_data = parsed_report.data;
+            if (parsed.redact) {
+                rep_data = wirescope.reporting.redactReportData(parsed_report.arena.allocator(), &rep_data, .{}) catch |err| {
+                    stderr.print("Error redacting report: {s}\n", .{@errorName(err)}) catch {};
+                    return ExitCodes.operational_failure;
+                };
+            }
+
+            const rendered_md = wirescope.reporting.renderMarkdownToString(allocator, &rep_data, .{ .redacted = parsed.redact }) catch |err| {
+                stderr.print("Error rendering Markdown report: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(rendered_md);
+
+            if (parsed.output_path) |out_p| {
+                wirescope.reporting.safeWriteReportFile(allocator, out_p, rendered_md, parsed.force) catch |err| {
+                    if (err == error.FileAlreadyExists) {
+                        stderr.print("Error: Output file '{s}' already exists. Use --force to overwrite.\n", .{out_p}) catch {};
+                        return ExitCodes.invalid_input;
+                    }
+                    stderr.print("Error writing Markdown report file '{s}': {s}\n", .{ out_p, @errorName(err) }) catch {};
+                    return ExitCodes.operational_failure;
+                };
+                stdout.print("Markdown report saved to '{s}'.\n", .{out_p}) catch return ExitCodes.operational_failure;
+            } else {
+                stdout.writeAll(rendered_md) catch return ExitCodes.operational_failure;
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "terminal") or std.mem.eql(u8, action, "term")) {
+            const target_file = file_path orelse {
+                stderr.print("Error: Report file path required. Usage: wirescope report terminal <report.json> [-o <path>] [--force] [--redact]\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(target_file, .{}) catch |err| {
+                stderr.print("Error opening report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const raw_content = file.readToEndAlloc(allocator, 50 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(raw_content);
+
+            var parsed_report = wirescope.reporting.parseReportFromJson(allocator, raw_content) catch |err| {
+                stderr.print("Failed to parse report '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+            defer parsed_report.deinit();
+
+            var rep_data = parsed_report.data;
+            if (parsed.redact) {
+                rep_data = wirescope.reporting.redactReportData(parsed_report.arena.allocator(), &rep_data, .{}) catch |err| {
+                    stderr.print("Error redacting report: {s}\n", .{@errorName(err)}) catch {};
+                    return ExitCodes.operational_failure;
+                };
+            }
+
+            const rendered_term = wirescope.reporting.renderTerminalToString(allocator, &rep_data, .{ .redacted = parsed.redact }) catch |err| {
+                stderr.print("Error rendering Terminal report: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(rendered_term);
+
+            if (parsed.output_path) |out_p| {
+                wirescope.reporting.safeWriteReportFile(allocator, out_p, rendered_term, parsed.force) catch |err| {
+                    if (err == error.FileAlreadyExists) {
+                        stderr.print("Error: Output file '{s}' already exists. Use --force to overwrite.\n", .{out_p}) catch {};
+                        return ExitCodes.invalid_input;
+                    }
+                    stderr.print("Error writing Terminal report file '{s}': {s}\n", .{ out_p, @errorName(err) }) catch {};
+                    return ExitCodes.operational_failure;
+                };
+                stdout.print("Terminal report saved to '{s}'.\n", .{out_p}) catch return ExitCodes.operational_failure;
+            } else {
+                stdout.writeAll(rendered_term) catch return ExitCodes.operational_failure;
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "export")) {
+            const target_file = file_path orelse {
+                stderr.print("Error: Report file path required. Usage: wirescope report export <report.json> [--format terminal|json|markdown] [-o <path>] [--force] [--redact]\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(target_file, .{}) catch |err| {
+                stderr.print("Error opening report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const raw_content = file.readToEndAlloc(allocator, 50 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(raw_content);
+
+            var parsed_report = wirescope.reporting.parseReportFromJson(allocator, raw_content) catch |err| {
+                stderr.print("Failed to parse report '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+            defer parsed_report.deinit();
+
+            var rep_data = parsed_report.data;
+            if (parsed.redact) {
+                rep_data = wirescope.reporting.redactReportData(parsed_report.arena.allocator(), &rep_data, .{}) catch |err| {
+                    stderr.print("Error redacting report: {s}\n", .{@errorName(err)}) catch {};
+                    return ExitCodes.operational_failure;
+                };
+            }
+
+            var rendered_bytes: []const u8 = undefined;
+            switch (parsed.format) {
+                .markdown => {
+                    rendered_bytes = wirescope.reporting.renderMarkdownToString(allocator, &rep_data, .{ .redacted = parsed.redact }) catch |err| {
+                        stderr.print("Error rendering Markdown report: {s}\n", .{@errorName(err)}) catch {};
+                        return ExitCodes.operational_failure;
+                    };
+                },
+                .terminal => {
+                    rendered_bytes = wirescope.reporting.renderTerminalToString(allocator, &rep_data, .{ .redacted = parsed.redact }) catch |err| {
+                        stderr.print("Error rendering Terminal report: {s}\n", .{@errorName(err)}) catch {};
+                        return ExitCodes.operational_failure;
+                    };
+                },
+                .json => {
+                    const json_str = wirescope.reporting.serializeReport(allocator, &rep_data) catch |err| {
+                        stderr.print("Error serializing JSON report: {s}\n", .{@errorName(err)}) catch {};
+                        return ExitCodes.operational_failure;
+                    };
+                    rendered_bytes = json_str;
+                },
+            }
+            defer allocator.free(rendered_bytes);
+
+            if (parsed.output_path) |out_p| {
+                wirescope.reporting.safeWriteReportFile(allocator, out_p, rendered_bytes, parsed.force) catch |err| {
+                    if (err == error.FileAlreadyExists) {
+                        stderr.print("Error: Output file '{s}' already exists. Use --force to overwrite.\n", .{out_p}) catch {};
+                        return ExitCodes.invalid_input;
+                    }
+                    stderr.print("Error writing exported report file '{s}': {s}\n", .{ out_p, @errorName(err) }) catch {};
+                    return ExitCodes.operational_failure;
+                };
+                stdout.print("Report exported to '{s}'.\n", .{out_p}) catch return ExitCodes.operational_failure;
+            } else {
+                stdout.writeAll(rendered_bytes) catch return ExitCodes.operational_failure;
+            }
+            return ExitCodes.success;
+        } else {
+            stderr.print("Error: Unknown report action '{s}'. Supported actions: validate, normalize, markdown, terminal, export\n", .{action}) catch {};
+            return ExitCodes.invalid_input;
+        }
+    }
+
+    // 21. Isolated Practice Lab Dispatcher (Milestone 13 Phase 13.1)
+    if (parsed.command == .lab) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        const action = parsed.subcommand orelse "list";
+        const base_data_dir = wirescope.storage.resolveDefaultDataDir(allocator) catch ".wirescope";
+        defer allocator.free(base_data_dir);
+        const lab_data_dir = std.fs.path.join(allocator, &[_][]const u8{ base_data_dir, "lab" }) catch ".wirescope/lab";
+        defer allocator.free(lab_data_dir);
+
+        var lab_mgr = wirescope.lab.LabManager.init(allocator, lab_data_dir);
+
+        if (std.mem.eql(u8, action, "list")) {
+            switch (parsed.format) {
+                .json => wirescope.lab.scenario.formatScenarioListJson(stdout) catch return ExitCodes.operational_failure,
+                .markdown => wirescope.lab.scenario.formatScenarioListMarkdown(stdout) catch return ExitCodes.operational_failure,
+                .terminal => wirescope.lab.scenario.formatScenarioListTerminal(stdout) catch return ExitCodes.operational_failure,
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "inspect")) {
+            const scen_id = parsed.target orelse {
+                stderr.print("Error: Scenario ID required for inspect. Usage: wirescope lab inspect <scenario_id>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const scen = wirescope.lab.scenario.findScenario(scen_id) orelse {
+                stderr.print("Error: Unknown lab scenario '{s}'. Run 'wirescope lab list' for available scenarios.\n", .{scen_id}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            switch (parsed.format) {
+                .json => wirescope.lab.scenario.formatScenarioJson(scen, stdout) catch return ExitCodes.operational_failure,
+                .markdown => wirescope.lab.scenario.formatScenarioMarkdown(scen, stdout) catch return ExitCodes.operational_failure,
+                .terminal => wirescope.lab.scenario.formatScenarioTerminal(scen, stdout) catch return ExitCodes.operational_failure,
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "setup")) {
+            const scen_id = parsed.target orelse {
+                stderr.print("Error: Scenario ID required. Usage: wirescope lab setup <scenario_id>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            var state = lab_mgr.setupScenario(scen_id) catch |err| {
+                stderr.print("Error initializing lab scenario '{s}': {s}\n", .{ scen_id, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer state.deinit(allocator);
+
+            switch (parsed.format) {
+                .json => {
+                    stdout.print(
+                        \\{{"status":"ready","scenario_id":"{s}","title":"{s}","target":"{s}","bind_ip":"{s}","port":{d},"is_synthetic":true}}
+                        \\
+                    , .{
+                        state.scenario_id,
+                        state.scenario_title,
+                        state.target,
+                        state.bind_ip,
+                        state.port,
+                    }) catch return ExitCodes.operational_failure;
+                },
+                .markdown => {
+                    stdout.print(
+                        \\# Practice Lab Initialized: {s}
+                        \\
+                        \\> **Status**: Ready | `{s}`
+                        \\
+                        \\- **Target**: `{s}`
+                        \\- **Bound Address**: `{s}:{d}`
+                        \\- **Scenario ID**: `{s}`
+                        \\
+                    , .{
+                        state.scenario_title,
+                        wirescope.lab.synthetic.SYNTHETIC_DATA_BADGE,
+                        state.target,
+                        state.bind_ip,
+                        state.port,
+                        state.scenario_id,
+                    }) catch return ExitCodes.operational_failure;
+                },
+                .terminal => {
+                    stdout.print(
+                        \\{s} Practice lab scenario '{s}' successfully initialized.
+                        \\Target endpoint: {s}
+                        \\Bound address:   {s}:{d}
+                        \\Run 'wirescope lab inspect {s}' for step-by-step instructions.
+                        \\
+                    , .{
+                        wirescope.lab.synthetic.SYNTHETIC_DATA_BADGE,
+                        state.scenario_title,
+                        state.target,
+                        state.bind_ip,
+                        state.port,
+                        state.scenario_id,
+                    }) catch return ExitCodes.operational_failure;
+                },
+            }
+
+            if (lab_mgr.active_service) |s| {
+                s.stop();
+                lab_mgr.active_service = null;
+            }
+
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "run")) {
+            const scen_id_str = parsed.target orelse {
+                stderr.print("Error: Scenario ID required. Usage: wirescope lab run <scenario_id>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const scen = wirescope.lab.scenario.findScenario(scen_id_str) orelse {
+                stderr.print("Error: Unknown lab scenario '{s}'. Run 'wirescope lab list' for available scenarios.\n", .{scen_id_str}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            var ex_res = wirescope.lab.exercises.runExercise(allocator, scen.id, lab_data_dir) catch |err| {
+                stderr.print("Error running lab exercise '{s}': {s}\n", .{ scen_id_str, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer ex_res.deinit(allocator);
+
+            switch (parsed.format) {
+                .json => wirescope.lab.exercises.formatExerciseJson(ex_res, stdout) catch return ExitCodes.operational_failure,
+                .markdown => wirescope.lab.exercises.formatExerciseMarkdown(ex_res, stdout) catch return ExitCodes.operational_failure,
+                .terminal => wirescope.lab.exercises.formatExerciseTerminal(ex_res, stdout) catch return ExitCodes.operational_failure,
+            }
+
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "status")) {
+            var maybe_state = lab_mgr.getStatus() catch |err| {
+                stderr.print("Error reading lab status: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+
+            if (maybe_state) |*st| {
+                defer st.deinit(allocator);
+                switch (parsed.format) {
+                    .json => {
+                        stdout.print(
+                            \\{{"active_scenario":"{s}","title":"{s}","status":"{s}","target":"{s}","bind_ip":"{s}","port":{d},"is_synthetic":true}}
+                            \\
+                        , .{
+                            st.scenario_id,
+                            st.scenario_title,
+                            st.status,
+                            st.target,
+                            st.bind_ip,
+                            st.port,
+                        }) catch return ExitCodes.operational_failure;
+                    },
+                    .markdown => {
+                        stdout.print(
+                            \\# Active Practice Lab Status
+                            \\
+                            \\> **Scenario**: {s} (`{s}`) | `{s}`
+                            \\
+                            \\- **Status**: {s}
+                            \\- **Target**: `{s}`
+                            \\- **Bound IP / Port**: `{s}:{d}`
+                            \\
+                        , .{
+                            st.scenario_title,
+                            st.scenario_id,
+                            wirescope.lab.synthetic.SYNTHETIC_DATA_BADGE,
+                            st.status,
+                            st.target,
+                            st.bind_ip,
+                            st.port,
+                        }) catch return ExitCodes.operational_failure;
+                    },
+                    .terminal => {
+                        stdout.print(
+                            \\=== Active Practice Lab Status ===
+                            \\Scenario:       {s} ({s})
+                            \\Status:         {s}
+                            \\Target:         {s}
+                            \\Bound:          {s}:{d}
+                            \\Synthetic:      {s}
+                            \\
+                        , .{
+                            st.scenario_title,
+                            st.scenario_id,
+                            st.status,
+                            st.target,
+                            st.bind_ip,
+                            st.port,
+                            wirescope.lab.synthetic.SYNTHETIC_DATA_BADGE,
+                        }) catch return ExitCodes.operational_failure;
+                    },
+                }
+            } else {
+                switch (parsed.format) {
+                    .json => {
+                        stdout.print("{{\"active_scenario\":null,\"is_synthetic\":true}}\n", .{}) catch return ExitCodes.operational_failure;
+                    },
+                    .markdown, .terminal => {
+                        stdout.print("No active practice lab scenario. Run 'wirescope lab list' to browse available exercises.\n", .{}) catch return ExitCodes.operational_failure;
+                    },
+                }
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "reset")) {
+            var st = lab_mgr.resetScenario() catch |err| {
+                stderr.print("Error resetting lab scenario: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer st.deinit(allocator);
+
+            switch (parsed.format) {
+                .json => {
+                    stdout.print("{{\"reset\":true,\"scenario_id\":\"{s}\",\"status\":\"ready\"}}\n", .{st.scenario_id}) catch return ExitCodes.operational_failure;
+                },
+                .markdown, .terminal => {
+                    stdout.print("{s} Lab scenario '{s}' reset to initial clean state.\n", .{ wirescope.lab.synthetic.SYNTHETIC_DATA_BADGE, st.scenario_id }) catch return ExitCodes.operational_failure;
+                },
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "verify")) {
+            var scen_id_to_verify: ?[]const u8 = parsed.target;
+            var active_st: ?wirescope.lab.ActiveLabState = null;
+            defer if (active_st) |*a| a.deinit(allocator);
+
+            if (scen_id_to_verify == null) {
+                active_st = lab_mgr.getStatus() catch null;
+                if (active_st) |a| {
+                    scen_id_to_verify = a.scenario_id;
+                }
+            }
+
+            const target_scen_id = scen_id_to_verify orelse {
+                stderr.print("Error: No active lab scenario to verify. Specify scenario ID: wirescope lab verify <scenario_id>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            var vres = wirescope.lab.verify.evaluateEvidence(allocator, target_scen_id, null, null) catch |err| {
+                stderr.print("Error evaluating scenario verification: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer vres.deinit(allocator);
+
+            switch (parsed.format) {
+                .json => wirescope.lab.verify.formatVerificationJson(vres, stdout) catch return ExitCodes.operational_failure,
+                .markdown => wirescope.lab.verify.formatVerificationMarkdown(vres, stdout) catch return ExitCodes.operational_failure,
+                .terminal => wirescope.lab.verify.formatVerificationTerminal(vres, stdout) catch return ExitCodes.operational_failure,
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "cleanup") or std.mem.eql(u8, action, "teardown")) {
+            lab_mgr.cleanup() catch |err| {
+                stderr.print("Error during lab cleanup: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+
+            switch (parsed.format) {
+                .json => {
+                    stdout.print("{{\"cleaned\":true,\"is_synthetic\":true}}\n", .{}) catch return ExitCodes.operational_failure;
+                },
+                .markdown, .terminal => {
+                    stdout.print("{s} WireScope lab listeners stopped and sandbox resources cleaned up.\n", .{wirescope.lab.synthetic.SYNTHETIC_DATA_BADGE}) catch return ExitCodes.operational_failure;
+                },
+            }
+            return ExitCodes.success;
+        } else {
+            stderr.print("Error: Unknown lab action '{s}'. Supported actions: list, inspect, setup, run, status, reset, verify, cleanup, teardown\n", .{action}) catch {};
             return ExitCodes.invalid_input;
         }
     }
@@ -2093,4 +2663,290 @@ test "execute discover command with preview, caps, remote authorization, and exc
     try testing.expectEqual(ExitCodes.findings_or_violations, code40);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"is_valid\":false") != null);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"status\":\"modified\"") != null);
+
+    // 25. Versioned JSON Reports & Schema Validation Dispatch (Milestone 12 Phase 12.1)
+    // 41: Report validate without path returns invalid_input
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_no_path = [_][]const u8{ "wirescope", "report", "validate" };
+    const code41 = execute(&report_no_path, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code41);
+
+    // Setup report test fixture
+    const valid_report_path = try std.fs.path.join(allocator, &[_][]const u8{ test_mnf_dir, "assessment_report.json" });
+    defer allocator.free(valid_report_path);
+
+    var valid_targets = [_][]const u8{"127.0.0.1"};
+    var valid_ports = [_]u16{80};
+    const rep_data = wirescope.reporting.AssessmentReportData{
+        .assessment_id = "asm-cli-report-1",
+        .profile_id = "local-security-audit",
+        .profile_name = "Local Security Audit",
+        .started_at_ms = 1710000000000,
+        .completed_at_ms = 1710000005000,
+        .duration_ms = 5000,
+        .status = "completed",
+        .manifest_hash = "0000000000000000000000000000000000000000000000000000000000000000".*,
+        .targets = &valid_targets,
+        .ports = &valid_ports,
+        .rate_limit_rps = 10,
+        .timeout_ms = 5000,
+        .tasks_planned = 1,
+        .tasks_executed = 1,
+        .tasks_succeeded = 1,
+        .tasks_failed = 0,
+        .is_complete = true,
+    };
+    const valid_json_str = try wirescope.reporting.serializeReport(allocator, &rep_data);
+    defer allocator.free(valid_json_str);
+    try std.fs.cwd().writeFile(.{ .sub_path = valid_report_path, .data = valid_json_str });
+
+    // 42: Validate compliant report
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_val_cmd = [_][]const u8{ "wirescope", "report", "validate", valid_report_path };
+    const code42 = execute(&report_val_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code42);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "successfully validated against schema v1") != null);
+
+    // 43: Validate corrupted / invalid report (missing fields)
+    const invalid_report_path = try std.fs.path.join(allocator, &[_][]const u8{ test_mnf_dir, "invalid_report.json" });
+    defer allocator.free(invalid_report_path);
+    try std.fs.cwd().writeFile(.{ .sub_path = invalid_report_path, .data = "{\"schema_version\": 1}" });
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_val_inv = [_][]const u8{ "wirescope", "report", "validate", invalid_report_path };
+    const code43 = execute(&report_val_inv, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code43);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "Report validation failed") != null);
+
+    // 44: Normalize report JSON
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_norm_cmd = [_][]const u8{ "wirescope", "report", "normalize", valid_report_path };
+    const code44 = execute(&report_norm_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code44);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"schema_version\": 1") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"started_at_ms\": 1710000000000") != null);
+
+    // 26. Markdown & Terminal Reports Dispatch with Safe Output and Redaction (Milestone 12 Phase 12.2)
+    // 45: Render Markdown report
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_md_cmd = [_][]const u8{ "wirescope", "report", "markdown", valid_report_path };
+    const code45 = execute(&report_md_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code45);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Assessment Report: Local Security Audit") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "**Status: COMPLETE**") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "asm-cli-report-1") != null);
+
+    // 46: Render Terminal report
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_term_cmd = [_][]const u8{ "wirescope", "report", "terminal", valid_report_path };
+    const code46 = execute(&report_term_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code46);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE DEFENSIVE ASSESSMENT REPORT") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Execution Status:    [completed]") != null);
+
+    // 47: Render report with --redact flag
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_redact_cmd = [_][]const u8{ "wirescope", "report", "markdown", valid_report_path, "--redact" };
+    const code47 = execute(&report_redact_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code47);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "REDACTION APPLIED") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "reduce report reproducibility") != null);
+
+    // 48: Write report to explicit --output path
+    const md_out_path = try std.fs.path.join(allocator, &[_][]const u8{ test_mnf_dir, "exported_audit.md" });
+    defer allocator.free(md_out_path);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_write_cmd = [_][]const u8{ "wirescope", "report", "markdown", valid_report_path, "-o", md_out_path };
+    const code48 = execute(&report_write_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code48);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Markdown report saved to") != null);
+
+    // 49: Writing again to existing output file without --force fails safely
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_write_noforce = [_][]const u8{ "wirescope", "report", "markdown", valid_report_path, "-o", md_out_path };
+    const code49 = execute(&report_write_noforce, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code49);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "already exists. Use --force to overwrite") != null);
+
+    // 50: Writing again with --force succeeds
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_write_force = [_][]const u8{ "wirescope", "report", "markdown", valid_report_path, "-o", md_out_path, "--force" };
+    const code50 = execute(&report_write_force, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code50);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Markdown report saved to") != null);
+
+    // 27. CLI Non-Interactive Automation & Scripting Contracts (Milestone 12 Phase 12.3)
+    // 51: Non-interactive policy check produces clean, unpolluted JSON parseable by standard parsers
+    out_fbs.reset();
+    err_fbs.reset();
+    const ni_policy_cmd = [_][]const u8{ "wirescope", "policy", "check", "--format", "json", "--non-interactive" };
+    const code51 = execute(&ni_policy_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code51);
+    const policy_json_str = out_fbs.getWritten();
+    var parsed_policy_json = try std.json.parseFromSlice(std.json.Value, allocator, policy_json_str, .{});
+    parsed_policy_json.deinit();
+
+    // 52: Non-interactive assessment on authorized target produces pure parseable JSON
+    out_fbs.reset();
+    err_fbs.reset();
+    const ni_assess_cmd = [_][]const u8{ "wirescope", "assess", "loopback-diagnostics", "--format", "json", "-y" };
+    const code52 = execute(&ni_assess_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code52);
+    const assess_json_str = out_fbs.getWritten();
+    var parsed_assess_json = try std.json.parseFromSlice(std.json.Value, allocator, assess_json_str, .{});
+    parsed_assess_json.deinit();
+
+    // 53: Non-interactive mode on remote target WITHOUT --confirm-authorized strictly fails with exit code 2
+    out_fbs.reset();
+    err_fbs.reset();
+    const ni_unauth_cmd = [_][]const u8{ "wirescope", "discover", "192.168.1.5", "--preview", "--non-interactive" };
+    const code53 = execute(&ni_unauth_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code53);
+    try testing.expectEqual(@as(usize, 0), out_fbs.getWritten().len);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "authorization acknowledgement") != null);
+
+    // 54: Non-interactive mode on remote target WITH --confirm-authorized succeeds with exit code 0
+    out_fbs.reset();
+    err_fbs.reset();
+    const ni_auth_cmd = [_][]const u8{ "wirescope", "discover", "192.168.1.5", "--preview", "--confirm-authorized", "--format", "json", "--non-interactive" };
+    const code54 = execute(&ni_auth_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code54);
+    var parsed_plan_json = try std.json.parseFromSlice(std.json.Value, allocator, out_fbs.getWritten(), .{});
+    parsed_plan_json.deinit();
+
+    // 55: Unknown assessment profile returns exit code 2 (invalid_input)
+    out_fbs.reset();
+    err_fbs.reset();
+    const ni_bad_prof = [_][]const u8{ "wirescope", "assess", "non-existent-profile", "--non-interactive" };
+    const code55 = execute(&ni_bad_prof, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code55);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "Unknown or unsupported assessment profile") != null);
+
+    // 56: Non-existent report file path returns exit code 3 (operational_failure)
+    out_fbs.reset();
+    err_fbs.reset();
+    const ni_bad_file = [_][]const u8{ "wirescope", "report", "validate", "does_not_exist_file.json", "--non-interactive" };
+    const code56 = execute(&ni_bad_file, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.operational_failure, code56);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "Error opening report file") != null);
+
+    // 57: Lab list in JSON, Markdown, and Terminal formats
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_list_json_cmd = [_][]const u8{ "wirescope", "lab", "list", "--format", "json" };
+    const code57 = execute(&lab_list_json_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code57);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "dns_failure") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "synthetic_lab_fixture") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_list_term_cmd = [_][]const u8{ "wirescope", "lab", "list" };
+    const code57b = execute(&lab_list_term_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code57b);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "[SYNTHETIC_LAB_FIXTURE]") != null);
+
+    // 58: Lab inspect valid scenario
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_insp_cmd = [_][]const u8{ "wirescope", "lab", "inspect", "dns_failure" };
+    const code58 = execute(&lab_insp_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code58);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "DNS Resolution No-Answer") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Step-by-Step Instructions") != null);
+
+    // 59: Lab setup scenario
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_setup_cmd = [_][]const u8{ "wirescope", "lab", "setup", "dns_failure", "--format", "json" };
+    const code59 = execute(&lab_setup_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code59);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"status\":\"ready\"") != null);
+
+    // 60: Lab status
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_status_cmd = [_][]const u8{ "wirescope", "lab", "status", "--format", "json" };
+    const code60 = execute(&lab_status_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code60);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "dns_failure") != null);
+
+    // 61: Lab verify scenario
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_verify_cmd = [_][]const u8{ "wirescope", "lab", "verify", "dns_failure", "--format", "json" };
+    const code61 = execute(&lab_verify_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code61);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "inconclusive") != null);
+
+    // 62: Lab cleanup
+    out_fbs.reset();
+    err_fbs.reset();
+    const lab_clean_cmd = [_][]const u8{ "wirescope", "lab", "cleanup", "--format", "json" };
+    const code62 = execute(&lab_clean_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code62);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"cleaned\":true") != null);
+
+    // 63: Exercise 1: dns_failure run
+    out_fbs.reset();
+    err_fbs.reset();
+    const ex1_cmd = [_][]const u8{ "wirescope", "lab", "run", "dns_failure", "--format", "json" };
+    const code63 = execute(&ex1_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code63);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-FINDING-DNS-FAILURE") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "expected_evidence") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "interpretation") != null);
+
+    // 64: Exercise 2: tcp_refusal_timeout run
+    out_fbs.reset();
+    err_fbs.reset();
+    const ex2_cmd = [_][]const u8{ "wirescope", "lab", "run", "tcp_refusal_timeout", "--format", "json" };
+    const code64 = execute(&ex2_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code64);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-FINDING-TCP-REFUSAL") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "limitations") != null);
+
+    // 65: Exercise 3: tls_cert_issues run
+    out_fbs.reset();
+    err_fbs.reset();
+    const ex3_cmd = [_][]const u8{ "wirescope", "lab", "run", "tls_cert_issues", "--format", "json" };
+    const code65 = execute(&ex3_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code65);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-FINDING-TLS-SAN-MISMATCH") != null);
+
+    // 66: Exercise 4: unexpected_listener run
+    out_fbs.reset();
+    err_fbs.reset();
+    const ex4_cmd = [_][]const u8{ "wirescope", "lab", "run", "unexpected_listener", "--format", "json" };
+    const code66 = execute(&ex4_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code66);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-FINDING-LISTENER-UNAPPROVED") != null);
+
+    // 67: Exercise 5: http_security_header_violation run
+    out_fbs.reset();
+    err_fbs.reset();
+    const ex5_cmd = [_][]const u8{ "wirescope", "lab", "run", "http_security_header_violation", "--format", "json" };
+    const code67 = execute(&ex5_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code67);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-FINDING-HTTP-MISSING-SECURITY-HEADERS") != null);
+
+    // 68: Exercise 6: remediation_verification run
+    out_fbs.reset();
+    err_fbs.reset();
+    const ex6_cmd = [_][]const u8{ "wirescope", "lab", "run", "remediation_verification", "--format", "json" };
+    const code68 = execute(&ex6_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code68);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"remediation_verified\": true") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"policy_eval_outcome\": \"pass\"") != null);
 }
