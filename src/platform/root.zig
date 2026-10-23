@@ -4,6 +4,7 @@ const testing = std.testing;
 pub const OsTag = @import("builtin").os.tag;
 
 pub const types = @import("types.zig");
+pub const PlatformError = types.PlatformError;
 pub const NetworkInterface = types.NetworkInterface;
 pub const InterfaceStatus = types.InterfaceStatus;
 pub const InterfaceEnumerationResult = types.InterfaceEnumerationResult;

@@ -1,6 +1,14 @@
 const std = @import("std");
 const testing = std.testing;
 
+pub const PlatformError = error{
+    AccessDenied,
+    PermissionDenied,
+    SystemResources,
+    UnsupportedPlatformApi,
+    OutOfMemory,
+};
+
 pub const InterfaceStatus = enum {
     up,
     down,
