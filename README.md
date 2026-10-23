@@ -94,10 +94,10 @@ Current Development Branch: `ashish`
 | ↳ Phase 11.1 | Implement versioned local storage | **COMPLETED** |
 | ↳ Phase 11.2 | Add history queries, retention, and recovery | **COMPLETED** |
 | ↳ Phase 11.3 | Add report integrity manifests | **COMPLETED** |
-| **Milestone 12** | **Reporting and Automation Contracts** | **IN PROGRESS** |
+| **Milestone 12** | **Reporting and Automation Contracts** | **COMPLETED** |
 | ↳ Phase 12.1 | Implement versioned JSON reports | **COMPLETED** |
 | ↳ Phase 12.2 | Implement Markdown and terminal reports | **COMPLETED** |
-| ↳ Phase 12.3 | Make CLI output safe for scripts and local automation | Pending |
+| ↳ Phase 12.3 | Make CLI output safe for scripts and local automation | **COMPLETED** |
 | **Milestone 13** | Isolated Practice Lab | Pending |
 | **Milestone 14** | Hardening, Cross-Platform Validation, and Release Prep | Pending |
 | **Milestone 15** | GitHub Actions CI/CD (Final Milestone) | Pending |
@@ -140,6 +140,7 @@ Current Development Branch: `ashish`
 - [ADR 0032: Report Integrity Manifests](docs/decisions/0032-report-integrity-manifests.md)
 - [ADR 0033: Versioned JSON Reports](docs/decisions/0033-versioned-json-reports.md)
 - [ADR 0034: Markdown and Terminal Reports](docs/decisions/0034-markdown-and-terminal-reports.md)
+- [ADR 0035: CLI Automation and Scripting Contracts](docs/decisions/0035-cli-automation-and-scripting-contracts.md)
 
 ---
 

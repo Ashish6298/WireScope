@@ -961,6 +961,9 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
                 prof = wirescope.assessment.BuiltinProfiles.local_security_audit;
             } else if (std.mem.eql(u8, prof_name, "loopback-diagnostics") or std.mem.eql(u8, prof_name, "loopback") or std.mem.eql(u8, prof_name, "diag")) {
                 prof = wirescope.assessment.BuiltinProfiles.loopback_diagnostic;
+            } else {
+                stderr.print("Error: Unknown or unsupported assessment profile '{s}'. Supported profiles: loopback-diagnostics, local-security-audit\n", .{prof_name}) catch {};
+                return ExitCodes.invalid_input;
             }
         }
 
@@ -972,6 +975,20 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         var result = runner.run(prof, .{
             .mode = .fixture,
         }) catch |err| {
+            if (err == error.MissingAuthorizationAcknowledgement or
+                err == error.ExcessiveOperationCount or
+                err == error.ExcessiveHostCount or
+                err == error.ExcessivePortCount or
+                err == error.ExcessiveCidrRange or
+                err == error.MalformedHostname or
+                err == error.MalformedIpAddress or
+                err == error.MalformedCidr or
+                err == error.EmptyTargets or
+                err == error.AllTargetsExcluded)
+            {
+                stderr.print("Error: Assessment scope authorization failed ({s}). Remote targets require explicit authorization (--confirm-authorized).\n", .{@errorName(err)}) catch {};
+                return ExitCodes.invalid_input;
+            }
             stderr.print("Error: Assessment execution failed: {s}\n", .{@errorName(err)}) catch {};
             return ExitCodes.operational_failure;
         };
@@ -983,7 +1000,8 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
             .markdown => result.toMarkdown(stdout) catch return ExitCodes.operational_failure,
         }
 
-        if (result.status == .failed or result.status == .cancelled) return ExitCodes.operational_failure;
+        if (result.status == .cancelled) return ExitCodes.cancelled;
+        if (result.status == .failed) return ExitCodes.operational_failure;
         if (result.findings.items.len > 0) return ExitCodes.findings_or_violations;
         return ExitCodes.success;
     }
@@ -2498,4 +2516,59 @@ test "execute discover command with preview, caps, remote authorization, and exc
     const code50 = execute(&report_write_force, out_fbs.writer(), err_fbs.writer());
     try testing.expectEqual(ExitCodes.success, code50);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Markdown report saved to") != null);
+
+    // 27. CLI Non-Interactive Automation & Scripting Contracts (Milestone 12 Phase 12.3)
+    // 51: Non-interactive policy check produces clean, unpolluted JSON parseable by standard parsers
+    out_fbs.reset();
+    err_fbs.reset();
+    const ni_policy_cmd = [_][]const u8{ "wirescope", "policy", "check", "--format", "json", "--non-interactive" };
+    const code51 = execute(&ni_policy_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code51);
+    const policy_json_str = out_fbs.getWritten();
+    var parsed_policy_json = try std.json.parseFromSlice(std.json.Value, allocator, policy_json_str, .{});
+    parsed_policy_json.deinit();
+
+    // 52: Non-interactive assessment on authorized target produces pure parseable JSON
+    out_fbs.reset();
+    err_fbs.reset();
+    const ni_assess_cmd = [_][]const u8{ "wirescope", "assess", "loopback-diagnostics", "--format", "json", "-y" };
+    const code52 = execute(&ni_assess_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code52);
+    const assess_json_str = out_fbs.getWritten();
+    var parsed_assess_json = try std.json.parseFromSlice(std.json.Value, allocator, assess_json_str, .{});
+    parsed_assess_json.deinit();
+
+    // 53: Non-interactive mode on remote target WITHOUT --confirm-authorized strictly fails with exit code 2
+    out_fbs.reset();
+    err_fbs.reset();
+    const ni_unauth_cmd = [_][]const u8{ "wirescope", "discover", "192.168.1.5", "--preview", "--non-interactive" };
+    const code53 = execute(&ni_unauth_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code53);
+    try testing.expectEqual(@as(usize, 0), out_fbs.getWritten().len);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "authorization acknowledgement") != null);
+
+    // 54: Non-interactive mode on remote target WITH --confirm-authorized succeeds with exit code 0
+    out_fbs.reset();
+    err_fbs.reset();
+    const ni_auth_cmd = [_][]const u8{ "wirescope", "discover", "192.168.1.5", "--preview", "--confirm-authorized", "--format", "json", "--non-interactive" };
+    const code54 = execute(&ni_auth_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code54);
+    var parsed_plan_json = try std.json.parseFromSlice(std.json.Value, allocator, out_fbs.getWritten(), .{});
+    parsed_plan_json.deinit();
+
+    // 55: Unknown assessment profile returns exit code 2 (invalid_input)
+    out_fbs.reset();
+    err_fbs.reset();
+    const ni_bad_prof = [_][]const u8{ "wirescope", "assess", "non-existent-profile", "--non-interactive" };
+    const code55 = execute(&ni_bad_prof, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code55);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "Unknown or unsupported assessment profile") != null);
+
+    // 56: Non-existent report file path returns exit code 3 (operational_failure)
+    out_fbs.reset();
+    err_fbs.reset();
+    const ni_bad_file = [_][]const u8{ "wirescope", "report", "validate", "does_not_exist_file.json", "--non-interactive" };
+    const code56 = execute(&ni_bad_file, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.operational_failure, code56);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "Error opening report file") != null);
 }
