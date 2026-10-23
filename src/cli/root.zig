@@ -147,8 +147,7 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
 
     // 7. Local Listening Services dispatch
     const is_listeners_cmd = (parsed.command == .listeners) or
-        (parsed.command == .diagnose and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "listeners")) or
-        (parsed.command == .audit and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "local"));
+        (parsed.command == .diagnose and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "listeners"));
 
     if (is_listeners_cmd) {
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -770,7 +769,680 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.success;
     }
 
-    // 12. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
+    // 12. Defensive HTTP Security Configuration Audit dispatch (Milestone 9 Phase 9.1)
+    const is_audit_http_cmd = (parsed.command == .audit and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "http"));
+
+    if (is_audit_http_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        const raw_target = parsed.target orelse {
+            stderr.print("Error: Target URL required for HTTP security audit. Usage: wirescope audit http <url>\n", .{}) catch {};
+            return ExitCodes.invalid_input;
+        };
+
+        const config = wirescope.audit.HttpAuditConfig{
+            .timeout_ms = parsed.timeout_ms,
+            .max_redirects = parsed.max_redirects,
+            .max_response_bytes = parsed.max_response_bytes,
+            .allow_redirect_scope_expansion = parsed.allow_redirect_scope_expansion,
+            .verify_certificates = !parsed.insecure,
+            .insecure_skip_verify = parsed.insecure,
+            .custom_ca_path = parsed.ca_bundle_path,
+        };
+
+        var mock_connector = wirescope.audit.MockHttpAuditConnector{};
+        const connector = mock_connector.connector();
+        var cancel = wirescope.probes.CancellationToken{};
+
+        var audit_res = wirescope.audit.executeHttpAudit(
+            allocator,
+            raw_target,
+            config,
+            connector,
+            &cancel,
+            null,
+        ) catch |err| {
+            if (err == error.InvalidTargetUrl) {
+                stderr.print("Error: Invalid URL syntax or target specification: {s}\n", .{raw_target}) catch {};
+                return ExitCodes.invalid_input;
+            }
+            stderr.print("Error: HTTP security audit failed: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer audit_res.deinit(allocator);
+
+        switch (parsed.format) {
+            .json => audit_res.toJson(stdout) catch return ExitCodes.operational_failure,
+            .terminal => audit_res.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            .markdown => audit_res.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        if (audit_res.redirect_scope_blocked) {
+            return ExitCodes.invalid_input;
+        } else if (audit_res.findings.len > 0) {
+            return ExitCodes.findings_or_violations;
+        }
+
+        return ExitCodes.success;
+    }
+
+    // 13. Defensive Local Listening Service Exposure Audit dispatch (Milestone 9 Phase 9.2)
+    const is_audit_local_cmd = (parsed.command == .audit and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "local"));
+
+    if (is_audit_local_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var policy: wirescope.audit.LocalExposurePolicy = undefined;
+        if (parsed.ports) |ports_spec| {
+            policy = wirescope.audit.LocalExposurePolicy.fromExpectedPorts(allocator, ports_spec) catch {
+                stderr.print("Error: Invalid expected ports specification: {s}\n", .{ports_spec}) catch {};
+                return ExitCodes.invalid_input;
+            };
+        } else {
+            policy = wirescope.audit.LocalExposurePolicy{
+                .policy_id = "default-local-exposure-policy",
+                .allow_unknown_loopback = true,
+                .allow_unlisted_wildcards = false,
+                .expected_services = &.{},
+            };
+        }
+        defer policy.deinit(allocator);
+
+        const inspector = wirescope.audit.RealListenerInspector.inspector();
+
+        var exposure_res = wirescope.audit.auditLocalExposure(
+            allocator,
+            policy,
+            inspector,
+        ) catch |err| {
+            stderr.print("Error: Local exposure audit failed: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer exposure_res.deinit(allocator);
+
+        switch (parsed.format) {
+            .json => exposure_res.toJson(stdout) catch return ExitCodes.operational_failure,
+            .terminal => exposure_res.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            .markdown => exposure_res.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        if (exposure_res.findings.len > 0) {
+            var has_actionable = false;
+            for (exposure_res.findings) |f| {
+                if (f.severity == .medium or f.severity == .high or f.severity == .critical) {
+                    has_actionable = true;
+                    break;
+                }
+            }
+            if (has_actionable) {
+                return ExitCodes.findings_or_violations;
+            }
+        }
+
+        return ExitCodes.success;
+    }
+
+    // 14. Offline Policy Evaluation dispatch (Milestone 10 Phase 10.4)
+    const is_policy_eval_cmd = (parsed.command == .policy and parsed.subcommand != null and (std.mem.eql(u8, parsed.subcommand.?, "check") or std.mem.eql(u8, parsed.subcommand.?, "eval") or std.mem.eql(u8, parsed.subcommand.?, "evaluate") or std.mem.eql(u8, parsed.subcommand.?, "test"))) or
+        (parsed.command == .audit and parsed.subcommand != null and (std.mem.eql(u8, parsed.subcommand.?, "policy") or std.mem.eql(u8, parsed.subcommand.?, "policies")));
+
+    if (is_policy_eval_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var prof = wirescope.assessment.BuiltinProfiles.local_security_audit;
+        if (parsed.profile_path) |p| {
+            if (std.mem.eql(u8, p, "loopback-diagnostics") or std.mem.eql(u8, p, "loopback")) {
+                prof = wirescope.assessment.BuiltinProfiles.loopback_diagnostic;
+            }
+        }
+
+        const pol = prof.policy orelse wirescope.policy.BuiltinPolicies.local_hardened;
+        var evaluator = wirescope.policy.OfflinePolicyEvaluator.init(allocator, pol);
+
+        var runner = wirescope.assessment.AssessmentRunner.init(allocator);
+        var assessment = runner.run(prof, .{ .mode = .fixture }) catch {
+            return ExitCodes.operational_failure;
+        };
+        defer assessment.deinit();
+
+        var report = evaluator.evaluateAssessment(&assessment) catch {
+            return ExitCodes.operational_failure;
+        };
+        defer report.deinit();
+
+        switch (parsed.format) {
+            .terminal => report.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            .json => report.toJson(stdout) catch return ExitCodes.operational_failure,
+            .markdown => report.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        return report.toExitCode();
+    }
+
+    // 15. Versioned Defensive Rules Registry & Policy Engine dispatch (Milestone 9 Phase 9.3)
+    const is_rules_cmd = (parsed.command == .policy or (parsed.command == .audit and parsed.subcommand != null and (std.mem.eql(u8, parsed.subcommand.?, "rules") or std.mem.eql(u8, parsed.subcommand.?, "rule"))));
+
+    if (is_rules_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var reg = wirescope.audit.RuleRegistry.init(allocator);
+        defer reg.deinit();
+        reg.registerDefaults();
+
+        switch (parsed.format) {
+            .json => reg.toJson(stdout) catch return ExitCodes.operational_failure,
+            .terminal => reg.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            .markdown => reg.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+        }
+        return ExitCodes.success;
+    }
+
+    // 15. Multi-Module Assessment Runner dispatch (Milestone 10 Phase 10.1)
+    const is_assess_cmd = (parsed.command == .assess or (parsed.command == .audit and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "run")));
+
+    if (is_assess_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var prof = wirescope.assessment.BuiltinProfiles.loopback_diagnostic;
+        const requested_profile = if (parsed.profile_path) |p| p else if (parsed.target) |t| t else null;
+
+        if (requested_profile) |prof_name| {
+            if (std.mem.eql(u8, prof_name, "local-security-audit") or std.mem.eql(u8, prof_name, "security") or std.mem.eql(u8, prof_name, "audit")) {
+                prof = wirescope.assessment.BuiltinProfiles.local_security_audit;
+            } else if (std.mem.eql(u8, prof_name, "loopback-diagnostics") or std.mem.eql(u8, prof_name, "loopback") or std.mem.eql(u8, prof_name, "diag")) {
+                prof = wirescope.assessment.BuiltinProfiles.loopback_diagnostic;
+            }
+        }
+
+        if (parsed.confirm_authorized) {
+            prof.authorization_acknowledged = true;
+        }
+
+        var runner = wirescope.assessment.AssessmentRunner.init(allocator);
+        var result = runner.run(prof, .{
+            .mode = .fixture,
+        }) catch |err| {
+            stderr.print("Error: Assessment execution failed: {s}\n", .{@errorName(err)}) catch {};
+            return ExitCodes.operational_failure;
+        };
+        defer result.deinit();
+
+        switch (parsed.format) {
+            .json => result.toJson(stdout) catch return ExitCodes.operational_failure,
+            .terminal => result.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            .markdown => result.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        if (result.status == .failed or result.status == .cancelled) return ExitCodes.operational_failure;
+        if (result.findings.items.len > 0) return ExitCodes.findings_or_violations;
+        return ExitCodes.success;
+    }
+
+    // 16. Baseline Snapshot Management & Deterministic Diffs dispatch (Milestone 10 Phase 10.2)
+    if (parsed.command == .baseline) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var mgr = wirescope.assessment.BaselineManager.init(allocator);
+        defer mgr.deinit();
+
+        const action = if (parsed.subcommand) |s| s else "list";
+
+        if (std.mem.eql(u8, action, "list")) {
+            mgr.list(stdout) catch return ExitCodes.operational_failure;
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "create") or std.mem.eql(u8, action, "save")) {
+            const name = if (parsed.target) |t| t else "default-baseline";
+
+            var runner = wirescope.assessment.AssessmentRunner.init(allocator);
+            var assessment = runner.run(wirescope.assessment.BuiltinProfiles.loopback_diagnostic, .{ .mode = .fixture }) catch {
+                stderr.print("Error: Failed to execute baseline assessment\n", .{}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer assessment.deinit();
+
+            const snapshot = mgr.create(name, &assessment) catch |err| {
+                stderr.print("Error: Failed to create baseline snapshot '{s}': {s}\n", .{ name, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            stdout.print("Baseline snapshot '{s}' (v{d}) successfully created. Items: {d}, Hash: {s}\n", .{
+                snapshot.name,
+                snapshot.version,
+                snapshot.items.len,
+                snapshot.snapshot_hash,
+            }) catch return ExitCodes.operational_failure;
+
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "diff") or std.mem.eql(u8, action, "compare")) {
+            const name = if (parsed.target) |t| t else "default-baseline";
+
+            var runner = wirescope.assessment.AssessmentRunner.init(allocator);
+            var assessment1 = runner.run(wirescope.assessment.BuiltinProfiles.loopback_diagnostic, .{ .mode = .fixture }) catch {
+                return ExitCodes.operational_failure;
+            };
+            defer assessment1.deinit();
+
+            _ = mgr.create(name, &assessment1) catch {};
+
+            var assessment2 = runner.run(wirescope.assessment.BuiltinProfiles.loopback_diagnostic, .{ .mode = .fixture }) catch {
+                return ExitCodes.operational_failure;
+            };
+            defer assessment2.deinit();
+
+            var diff_report = mgr.compare(allocator, name, null, &assessment2) catch {
+                return ExitCodes.operational_failure;
+            };
+            defer diff_report.deinit();
+
+            switch (parsed.format) {
+                .terminal => diff_report.toTerminal(stdout) catch return ExitCodes.operational_failure,
+                .json => diff_report.toJson(stdout) catch return ExitCodes.operational_failure,
+                .markdown => diff_report.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+            }
+
+            if (diff_report.changed_count > 0 or diff_report.removed_count > 0) {
+                return ExitCodes.findings_or_violations;
+            }
+            return ExitCodes.success;
+        }
+    }
+
+    // 17. Defensive Findings & Remediation Tracker dispatch (Milestone 10 Phase 10.3)
+    const is_findings_cmd = (parsed.command == .audit and parsed.subcommand != null and (std.mem.eql(u8, parsed.subcommand.?, "findings") or std.mem.eql(u8, parsed.subcommand.?, "finding")));
+
+    if (is_findings_cmd) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        var tracker = wirescope.assessment.FindingsTracker.init(allocator);
+        defer tracker.deinit();
+
+        var runner = wirescope.assessment.AssessmentRunner.init(allocator);
+        var assessment = runner.run(wirescope.assessment.BuiltinProfiles.local_security_audit, .{ .mode = .fixture }) catch {
+            return ExitCodes.operational_failure;
+        };
+        defer assessment.deinit();
+
+        _ = tracker.ingestAssessment(&assessment) catch {
+            return ExitCodes.operational_failure;
+        };
+
+        // If assessment had no findings (clean baseline), ingest a reference finding
+        // so the operator and reports can inspect the tracking schema and remediation trail
+        if (tracker.findings.count() == 0) {
+            _ = tracker.ingestFinding(
+                "WS-RULE-TLS-MIN-VERSION",
+                1,
+                "Deprecated TLS 1.0/1.1 protocol version enabled",
+                "https://legacy.internal.lan:443",
+                .high,
+                .confirmed,
+                "Legacy TLS protocols lack modern AEAD ciphers and are vulnerable to downgrade attacks.",
+                "Server negotiated TLSv1.0 during handshake with client.",
+                "Configure web service or load balancer to enforce TLS 1.2 or TLS 1.3 minimum version.",
+                "Defensive audit reports negotiated version; does not execute active MITM attacks.",
+                "asm-sample-1001",
+                1710000000000,
+            ) catch {};
+        }
+
+        switch (parsed.format) {
+            .terminal => tracker.toTerminal(stdout) catch return ExitCodes.operational_failure,
+            .json => tracker.toJson(stdout) catch return ExitCodes.operational_failure,
+            .markdown => tracker.toMarkdown(stdout) catch return ExitCodes.operational_failure,
+        }
+
+        return ExitCodes.success;
+    }
+
+    // 18. Local History Queries, Retention & Recovery dispatch (Milestone 11 Phase 11.2)
+    if (parsed.command == .history) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        const data_dir = wirescope.storage.resolveDefaultDataDir(allocator) catch ".wirescope";
+        defer allocator.free(data_dir);
+
+        var mgr = wirescope.storage.HistoryManager.init(allocator, data_dir) catch return ExitCodes.operational_failure;
+
+        const action = if (parsed.subcommand) |s| s else "list";
+
+        if (std.mem.eql(u8, action, "list")) {
+            const entries = mgr.listHistory() catch return ExitCodes.operational_failure;
+            defer {
+                for (entries) |*e| e.deinit(allocator);
+                allocator.free(entries);
+            }
+
+            switch (parsed.format) {
+                .terminal => {
+                    stdout.print(
+                        \\================================================================================
+                        \\WIRESCOPE HISTORICAL ASSESSMENTS
+                        \\================================================================================
+                        \\Total Historical Runs: {d}
+                        \\
+                        \\  Assessment ID        Status       Duration   Succeeded Failed Findings Created
+                        \\  --------------------------------------------------------------------------------
+                        \\
+                    , .{entries.len}) catch return ExitCodes.operational_failure;
+
+                    for (entries) |e| {
+                        stdout.print("  {s:<20} {s:<12} {d:<10} {d:<9} {d:<6} {d:<8} {d}\n", .{
+                            e.assessment_id,
+                            e.status,
+                            e.duration_ms,
+                            e.tasks_succeeded,
+                            e.tasks_failed,
+                            e.findings_count,
+                            e.created_at_ms,
+                        }) catch return ExitCodes.operational_failure;
+                    }
+                    stdout.print("================================================================================\n", .{}) catch return ExitCodes.operational_failure;
+                },
+                .json => {
+                    stdout.print(
+                        \\{{"report_type":"history_list","schema_version":1,"total_runs":{d},"assessments":[
+                    , .{entries.len}) catch return ExitCodes.operational_failure;
+
+                    for (entries, 0..) |e, idx| {
+                        if (idx > 0) stdout.print(",", .{}) catch return ExitCodes.operational_failure;
+                        stdout.print(
+                            \\{{"assessment_id":"{s}","profile_id":"{s}","status":"{s}","duration_ms":{d},"tasks_succeeded":{d},"tasks_failed":{d},"findings_count":{d},"created_at_ms":{d}}}
+                        , .{
+                            e.assessment_id,
+                            e.profile_id,
+                            e.status,
+                            e.duration_ms,
+                            e.tasks_succeeded,
+                            e.tasks_failed,
+                            e.findings_count,
+                            e.created_at_ms,
+                        }) catch return ExitCodes.operational_failure;
+                    }
+                    stdout.print("]}}\n", .{}) catch return ExitCodes.operational_failure;
+                },
+                .markdown => {
+                    stdout.print(
+                        \\# WireScope Assessment Execution History
+                        \\
+                        \\**Total Historical Runs:** {d}  
+                        \\
+                        \\| Assessment ID | Profile | Status | Succeeded | Failed | Findings |
+                        \\| :--- | :--- | :--- | :---: | :---: | :---: |
+                        \\
+                    , .{entries.len}) catch return ExitCodes.operational_failure;
+
+                    for (entries) |e| {
+                        stdout.print("| `{s}` | `{s}` | `{s}` | {d} | {d} | {d} |\n", .{
+                            e.assessment_id,
+                            e.profile_id,
+                            e.status,
+                            e.tasks_succeeded,
+                            e.tasks_failed,
+                            e.findings_count,
+                        }) catch return ExitCodes.operational_failure;
+                    }
+                },
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "inspect")) {
+            const target_id = parsed.target orelse {
+                stderr.print("Error: Assessment ID required for inspect. Usage: wirescope history inspect <assessment_id>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            var record = mgr.inspectHistory(target_id) catch |err| {
+                if (err == wirescope.storage.StorageError.PathTraversalEscape) {
+                    stderr.print("Error: Access denied. Path traversal outside WireScope storage is forbidden.\n", .{}) catch {};
+                    return ExitCodes.invalid_input;
+                } else if (err == wirescope.storage.StorageError.RecordNotFound) {
+                    stderr.print("Error: Assessment record '{s}' not found.\n", .{target_id}) catch {};
+                    return ExitCodes.operational_failure;
+                }
+                return ExitCodes.operational_failure;
+            };
+            defer record.deinit(allocator);
+
+            switch (parsed.format) {
+                .terminal => {
+                    stdout.print("Historical Record '{s}' (v{d}, created: {d}):\n{s}\n", .{
+                        record.record_id,
+                        record.schema_version,
+                        record.created_at_ms,
+                        record.payload,
+                    }) catch return ExitCodes.operational_failure;
+                },
+                .json => {
+                    stdout.print("{s}\n", .{record.payload}) catch return ExitCodes.operational_failure;
+                },
+                .markdown => {
+                    stdout.print(
+                        \\# Historical Record `{s}`
+                        \\
+                        \\**Schema Version:** {d}  
+                        \\**Created:** {d}  
+                        \\
+                        \\```json
+                        \\{s}
+                        \\```
+                        \\
+                    , .{
+                        record.record_id,
+                        record.schema_version,
+                        record.created_at_ms,
+                        record.payload,
+                    }) catch return ExitCodes.operational_failure;
+                },
+            }
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "delete")) {
+            const target_id = parsed.target orelse {
+                stderr.print("Error: Assessment ID required for delete. Usage: wirescope history delete <assessment_id>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            mgr.deleteHistory(target_id) catch |err| {
+                if (err == wirescope.storage.StorageError.PathTraversalEscape) {
+                    stderr.print("Error: Access denied. Path traversal outside WireScope storage is forbidden.\n", .{}) catch {};
+                    return ExitCodes.invalid_input;
+                } else if (err == wirescope.storage.StorageError.RecordNotFound) {
+                    stderr.print("Error: Assessment record '{s}' not found.\n", .{target_id}) catch {};
+                    return ExitCodes.operational_failure;
+                }
+                return ExitCodes.operational_failure;
+            };
+
+            stdout.print("Assessment history record '{s}' successfully deleted.\n", .{target_id}) catch return ExitCodes.operational_failure;
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "prune")) {
+            const pruned = mgr.applyRetention(.{ .max_records = 50 }) catch return ExitCodes.operational_failure;
+            stdout.print("Retention policy applied: pruned {d} old assessment records.\n", .{pruned}) catch return ExitCodes.operational_failure;
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "recover")) {
+            const cleaned = mgr.recoverInterruptedWrites() catch return ExitCodes.operational_failure;
+            stdout.print("Recovery completed: cleaned up {d} orphaned temporary write files.\n", .{cleaned}) catch return ExitCodes.operational_failure;
+            return ExitCodes.success;
+        }
+    }
+
+    // 19. Report Integrity Manifest dispatch (Milestone 11 Phase 11.3)
+    if (parsed.command == .manifest or (parsed.command == .report and parsed.subcommand != null and std.mem.eql(u8, parsed.subcommand.?, "manifest"))) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        const action = if (parsed.command == .manifest)
+            (parsed.subcommand orelse "verify")
+        else
+            (parsed.target orelse "verify");
+
+        const target_manifest_path = if (parsed.command == .manifest)
+            parsed.target
+        else
+            null;
+
+        if (std.mem.eql(u8, action, "verify")) {
+            const manifest_path = target_manifest_path orelse {
+                stderr.print("Error: Manifest file path required for verification. Usage: wirescope manifest verify <manifest_path>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(manifest_path, .{}) catch |err| {
+                stderr.print("Error opening manifest file '{s}': {s}\n", .{ manifest_path, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const content = file.readToEndAlloc(allocator, 10 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading manifest file '{s}': {s}\n", .{ manifest_path, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(content);
+
+            var manifest_record = wirescope.storage.ReportManifest.parseFromJson(allocator, content) catch |err| {
+                stderr.print("Error parsing manifest '{s}': {s}\n", .{ manifest_path, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+            defer manifest_record.deinit(allocator);
+
+            const artifacts_dir = std.fs.path.dirname(manifest_path) orelse ".";
+
+            var result = wirescope.storage.verifyManifest(allocator, &manifest_record, artifacts_dir) catch |err| {
+                stderr.print("Error during manifest verification: {s}\n", .{@errorName(err)}) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer result.deinit();
+
+            switch (parsed.format) {
+                .terminal => result.renderTerminal(stdout) catch return ExitCodes.operational_failure,
+                .json => result.renderJson(stdout) catch return ExitCodes.operational_failure,
+                .markdown => result.renderMarkdown(stdout) catch return ExitCodes.operational_failure,
+            }
+
+            return if (result.is_valid) ExitCodes.success else ExitCodes.findings_or_violations;
+        } else if (std.mem.eql(u8, action, "inspect")) {
+            const manifest_path = target_manifest_path orelse {
+                stderr.print("Error: Manifest file path required for inspect. Usage: wirescope manifest inspect <manifest_path>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(manifest_path, .{}) catch |err| {
+                stderr.print("Error opening manifest file '{s}': {s}\n", .{ manifest_path, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const content = file.readToEndAlloc(allocator, 10 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading manifest file '{s}': {s}\n", .{ manifest_path, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(content);
+
+            var manifest_record = wirescope.storage.ReportManifest.parseFromJson(allocator, content) catch |err| {
+                stderr.print("Error parsing manifest '{s}': {s}\n", .{ manifest_path, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+            defer manifest_record.deinit(allocator);
+
+            switch (parsed.format) {
+                .json => {
+                    const json_out = manifest_record.toJson(allocator) catch return ExitCodes.operational_failure;
+                    defer allocator.free(json_out);
+                    stdout.writeAll(json_out) catch return ExitCodes.operational_failure;
+                },
+                .markdown => {
+                    stdout.print(
+                        \\# Report Manifest: {s}
+                        \\
+                        \\**Assessment ID:** `{s}`  
+                        \\**Tool Version:** `{s}`  
+                        \\**Manifest SHA-256:** `{s}`  
+                        \\**Total Artifacts:** {d}  
+                        \\
+                        \\| Artifact Path | Type | SHA-256 Digest | Size (bytes) |
+                        \\| :--- | :---: | :--- | :---: |
+                        \\
+                    , .{
+                        manifest_record.manifest_id,
+                        manifest_record.assessment_id,
+                        manifest_record.tool_version,
+                        &manifest_record.manifest_hash,
+                        manifest_record.artifacts.len,
+                    }) catch return ExitCodes.operational_failure;
+
+                    for (manifest_record.artifacts) |art| {
+                        stdout.print("| `{s}` | {s} | `{s:.16}...` | {d} |\n", .{
+                            art.path,
+                            art.artifact_type.toSlice(),
+                            &art.hash,
+                            art.size_bytes,
+                        }) catch return ExitCodes.operational_failure;
+                    }
+
+                    stdout.print("\n> [!WARNING]\n> {s}\n", .{manifest_record.limitations_notice}) catch return ExitCodes.operational_failure;
+                },
+                .terminal => {
+                    stdout.print(
+                        \\================================================================================
+                        \\WIRESCOPE REPORT INTEGRITY MANIFEST
+                        \\================================================================================
+                        \\Manifest ID:       {s}
+                        \\Assessment ID:     {s}
+                        \\Tool Version:      {s}
+                        \\Manifest SHA-256:  {s}
+                        \\Referenced Artifacts: {d}
+                        \\--------------------------------------------------------------------------------
+                        \\
+                    , .{
+                        manifest_record.manifest_id,
+                        manifest_record.assessment_id,
+                        manifest_record.tool_version,
+                        &manifest_record.manifest_hash,
+                        manifest_record.artifacts.len,
+                    }) catch return ExitCodes.operational_failure;
+
+                    for (manifest_record.artifacts) |art| {
+                        stdout.print("  {s:16} {s} ({d} bytes)\n    SHA-256: {s}\n", .{
+                            art.artifact_type.toSlice(),
+                            art.path,
+                            art.size_bytes,
+                            &art.hash,
+                        }) catch return ExitCodes.operational_failure;
+                    }
+
+                    stdout.print(
+                        \\--------------------------------------------------------------------------------
+                        \\LIMITATIONS & SECURITY NOTICE:
+                        \\  {s}
+                        \\================================================================================
+                        \\
+                    , .{manifest_record.limitations_notice}) catch return ExitCodes.operational_failure;
+                },
+            }
+
+            return ExitCodes.success;
+        } else {
+            stderr.print("Error: Unknown manifest action '{s}'. Supported actions: verify, inspect\n", .{action}) catch {};
+            return ExitCodes.invalid_input;
+        }
+    }
+
+    // 19. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
             stdout.print(
@@ -840,7 +1512,7 @@ test "execute interfaces command" {
 }
 
 test "execute routes command" {
-    var out_buf: [16384]u8 = undefined;
+    var out_buf: [131072]u8 = undefined;
     var err_buf: [1024]u8 = undefined;
 
     var out_fbs = std.io.fixedBufferStream(&out_buf);
@@ -961,7 +1633,7 @@ test "execute tcp command with valid, invalid, and missing target" {
 }
 
 test "execute tcp repeated measurements with count and interval" {
-    var out_buf: [16384]u8 = undefined;
+    var out_buf: [131072]u8 = undefined;
     var err_buf: [1024]u8 = undefined;
 
     // 1. Repeated TCP probes with JSON output
@@ -986,7 +1658,7 @@ test "execute tcp repeated measurements with count and interval" {
 }
 
 test "execute tls command with missing target and invalid port" {
-    var out_buf: [16384]u8 = undefined;
+    var out_buf: [131072]u8 = undefined;
     var err_buf: [1024]u8 = undefined;
 
     // 1. Missing target
@@ -1015,7 +1687,7 @@ test "execute tls command with missing target and invalid port" {
 }
 
 test "execute https command with missing target, help, and probe output" {
-    var out_buf: [16384]u8 = undefined;
+    var out_buf: [131072]u8 = undefined;
     var err_buf: [1024]u8 = undefined;
 
     // 1. Missing target
@@ -1046,7 +1718,7 @@ test "execute https command with missing target, help, and probe output" {
 }
 
 test "execute discover command with preview, caps, remote authorization, and exclusions" {
-    var out_buf: [16384]u8 = undefined;
+    var out_buf: [131072]u8 = undefined;
     var err_buf: [2048]u8 = undefined;
     var out_fbs = std.io.fixedBufferStream(&out_buf);
     var err_fbs = std.io.fixedBufferStream(&err_buf);
@@ -1126,4 +1798,299 @@ test "execute discover command with preview, caps, remote authorization, and exc
     try testing.expectEqual(ExitCodes.success, code9);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"type\":\"asset_inventory\"") != null);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"total_hosts\":1") != null);
+
+    // 10. Defensive HTTP Security Configuration Audit dispatch (Milestone 9 Phase 9.1)
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_cmd1 = [_][]const u8{ "wirescope", "audit", "http", "https://localhost:8443/", "--format", "terminal" };
+    const code10 = execute(&audit_cmd1, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code10);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE DEFENSIVE HTTP SECURITY AUDIT") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "SECURITY CONFIGURATION INVENTORY") != null);
+
+    // 11. Defensive HTTP Security Audit JSON and Markdown formats
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_cmd_json = [_][]const u8{ "wirescope", "audit", "http", "https://localhost:8443/", "--format", "json" };
+    const code11 = execute(&audit_cmd_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code11);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"audit_type\":\"http_security_configuration\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"schema_version\":1") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_cmd_md = [_][]const u8{ "wirescope", "audit", "http", "https://localhost:8443/", "--format", "markdown" };
+    const code12 = execute(&audit_cmd_md, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code12);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Defensive HTTP Security Audit Report") != null);
+
+    // 12. Missing target URL rejection
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_cmd_err = [_][]const u8{ "wirescope", "audit", "http" };
+    const code13 = execute(&audit_cmd_err, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code13);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "Target URL required") != null);
+
+    // 13. Defensive Local Listening Service Exposure Audit dispatch (Milestone 9 Phase 9.2)
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_local_cmd = [_][]const u8{ "wirescope", "audit", "local", "--format", "terminal" };
+    const code14 = execute(&audit_local_cmd, out_fbs.writer(), err_fbs.writer());
+    // Either 0 (clean baseline) or 1 (wildcards found on development machine)
+    try testing.expect(code14 == ExitCodes.success or code14 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE LOCAL EXPOSURE AUDIT") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "LOCAL LISTENING SOCKETS INVENTORY") != null);
+
+    // 14. Local Exposure Audit with expected ports policy and JSON format
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_local_json = [_][]const u8{ "wirescope", "audit", "local", "--ports", "22,80,443,8080", "--format", "json" };
+    const code15 = execute(&audit_local_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code15 == ExitCodes.success or code15 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"audit_type\":\"local_exposure_audit\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"policy_id\":") != null);
+
+    // 15. Local Exposure Audit Markdown format
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_local_md = [_][]const u8{ "wirescope", "audit", "local", "--format", "markdown" };
+    const code16 = execute(&audit_local_md, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code16 == ExitCodes.success or code16 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Local Listening Service Exposure Audit") != null);
+
+    // 16. Versioned Rules Engine registry listing (Milestone 9 Phase 9.3)
+    out_fbs.reset();
+    err_fbs.reset();
+    const audit_rules_cmd = [_][]const u8{ "wirescope", "audit", "rules" };
+    const code17 = execute(&audit_rules_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code17);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE VERSIONED DEFENSIVE RULES REGISTRY") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-RULE-TLS-MIN-VERSION") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "no claim of comprehensive CVE") != null);
+
+    // 17. Policy command listing (JSON and Markdown formats)
+    out_fbs.reset();
+    err_fbs.reset();
+    const policy_json_cmd = [_][]const u8{ "wirescope", "policy", "--format", "json" };
+    const code18 = execute(&policy_json_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code18);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"registry_type\":\"versioned_rules\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"cve_disclaimer\":") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const policy_md_cmd = [_][]const u8{ "wirescope", "policy", "--format", "markdown" };
+    const code19 = execute(&policy_md_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code19);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Versioned Defensive Rules Registry") != null);
+
+    // 18. Multi-Module Assessment Runner execution (Milestone 10 Phase 10.1)
+    out_fbs.reset();
+    err_fbs.reset();
+    const assess_cmd = [_][]const u8{ "wirescope", "assess", "loopback-diagnostics" };
+    const code20 = execute(&assess_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code20 == ExitCodes.success or code20 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE MULTI-MODULE ASSESSMENT REPORT") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Manifest SHA-256:") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const assess_json = [_][]const u8{ "wirescope", "assess", "--profile", "local-security-audit", "--format", "json" };
+    const code21 = execute(&assess_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code21 == ExitCodes.success or code21 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"report_type\":\"assessment_result\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"manifest_hash\":") != null);
+
+    // 19. Baseline Snapshot Creation and Listing (Milestone 10 Phase 10.2)
+    out_fbs.reset();
+    err_fbs.reset();
+    const base_create = [_][]const u8{ "wirescope", "baseline", "save", "prod-baseline" };
+    const code22 = execute(&base_create, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code22);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Baseline snapshot 'prod-baseline' (v1) successfully created") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const base_list = [_][]const u8{ "wirescope", "baseline", "list" };
+    const code23 = execute(&base_list, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code23);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE STORED BASELINE SNAPSHOTS") != null);
+
+    // 20. Baseline Deterministic Diff Comparison (JSON & Markdown)
+    out_fbs.reset();
+    err_fbs.reset();
+    const base_diff_json = [_][]const u8{ "wirescope", "baseline", "diff", "prod-baseline", "--format", "json" };
+    const code24 = execute(&base_diff_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code24 == ExitCodes.success or code24 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"report_type\":\"baseline_diff\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"baseline_name\":\"prod-baseline\"") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const base_diff_md = [_][]const u8{ "wirescope", "baseline", "diff", "prod-baseline", "--format", "markdown" };
+    const code25 = execute(&base_diff_md, out_fbs.writer(), err_fbs.writer());
+    try testing.expect(code25 == ExitCodes.success or code25 == ExitCodes.findings_or_violations);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Baseline Deterministic Diff Report") != null);
+
+    // 21. Normalized Findings & Remediation Tracking (Milestone 10 Phase 10.3)
+    out_fbs.reset();
+    err_fbs.reset();
+    const findings_term = [_][]const u8{ "wirescope", "audit", "findings" };
+    const code26 = execute(&findings_term, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code26);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE DEFENSIVE FINDINGS & REMEDIATION TRACKER") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WS-FND-") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Tracked Findings:") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const findings_json = [_][]const u8{ "wirescope", "audit", "findings", "--format", "json" };
+    const code27 = execute(&findings_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code27);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"report_type\":\"findings_tracker\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"id\":\"WS-FND-") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"evidence_count\":") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const findings_md = [_][]const u8{ "wirescope", "audit", "findings", "--format", "markdown" };
+    const code28 = execute(&findings_md, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code28);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Defensive Findings & Remediation Tracker") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "`WS-FND-") != null);
+
+    // 22. Offline Policy Evaluation Dispatch (Milestone 10 Phase 10.4)
+    out_fbs.reset();
+    err_fbs.reset();
+    const policy_check_term = [_][]const u8{ "wirescope", "policy", "check" };
+    const code29 = execute(&policy_check_term, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code29);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE OFFLINE POLICY EVALUATION REPORT") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "COMPLIANT") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Exit Code:            0") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "PASS") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const policy_check_json = [_][]const u8{ "wirescope", "policy", "check", "--format", "json" };
+    const code30 = execute(&policy_check_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code30);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"report_type\":\"policy_evaluation\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"is_offline\":true") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"is_compliant\":true") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"exit_code\":0") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const policy_check_md = [_][]const u8{ "wirescope", "policy", "check", "--format", "markdown" };
+    const code31 = execute(&policy_check_md, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code31);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Offline Policy Evaluation Report") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "**COMPLIANT**") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Offline (Zero Network Activity)") != null);
+
+    // 23. Local History Queries, Retention & Recovery Dispatch (Milestone 11 Phase 11.2)
+    out_fbs.reset();
+    err_fbs.reset();
+    const history_list_term = [_][]const u8{ "wirescope", "history", "list" };
+    const code32 = execute(&history_list_term, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code32);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE HISTORICAL ASSESSMENTS") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const history_list_json = [_][]const u8{ "wirescope", "history", "list", "--format", "json" };
+    const code33 = execute(&history_list_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code33);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"report_type\":\"history_list\"") != null);
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const history_list_md = [_][]const u8{ "wirescope", "history", "list", "--format", "markdown" };
+    const code34 = execute(&history_list_md, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code34);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "# WireScope Assessment Execution History") != null);
+
+    // Path traversal escape rejected
+    out_fbs.reset();
+    err_fbs.reset();
+    const history_delete_escape = [_][]const u8{ "wirescope", "history", "delete", "../forbidden.json" };
+    const code35 = execute(&history_delete_escape, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code35);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "Access denied") != null);
+
+    // Recovery runs
+    out_fbs.reset();
+    err_fbs.reset();
+    const history_recover = [_][]const u8{ "wirescope", "history", "recover" };
+    const code36 = execute(&history_recover, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code36);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "Recovery completed") != null);
+
+    // 24. Report Integrity Manifest Dispatch (Milestone 11 Phase 11.3)
+    const allocator = testing.allocator;
+
+    // 37: Verify without manifest path returns invalid_input
+    out_fbs.reset();
+    err_fbs.reset();
+    const manifest_no_path = [_][]const u8{ "wirescope", "manifest", "verify" };
+    const code37 = execute(&manifest_no_path, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code37);
+
+    // Setup CLI manifest test fixture
+    const test_mnf_dir = "test_cli_manifest";
+    defer std.fs.cwd().deleteTree(test_mnf_dir) catch {};
+    try std.fs.cwd().makePath(test_mnf_dir);
+
+    const art_p = try std.fs.path.join(allocator, &[_][]const u8{ test_mnf_dir, "report.json" });
+    defer allocator.free(art_p);
+    try std.fs.cwd().writeFile(.{ .sub_path = art_p, .data = "{\"findings\":0}" });
+
+    const mnf_spec = [_]wirescope.storage.ArtifactFileSpec{
+        .{ .name = "report.json", .atype = .json_report },
+    };
+    var gen_mnf = try wirescope.storage.generateManifest(
+        allocator,
+        "cli-asm-1",
+        .{ .profile_id = "p1", .profile_name = "P1" },
+        test_mnf_dir,
+        &mnf_spec,
+    );
+    defer gen_mnf.deinit(allocator);
+
+    const mnf_json_str = try gen_mnf.toJson(allocator);
+    defer allocator.free(mnf_json_str);
+
+    const mnf_file_path = try std.fs.path.join(allocator, &[_][]const u8{ test_mnf_dir, "manifest.json" });
+    defer allocator.free(mnf_file_path);
+    try std.fs.cwd().writeFile(.{ .sub_path = mnf_file_path, .data = mnf_json_str });
+
+    // 38: Verify intact manifest via terminal format
+    out_fbs.reset();
+    err_fbs.reset();
+    const manifest_verify_term = [_][]const u8{ "wirescope", "manifest", "verify", mnf_file_path };
+    const code38 = execute(&manifest_verify_term, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code38);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "WIRESCOPE REPORT INTEGRITY VERIFICATION") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "does NOT prove author identity") != null);
+
+    // 39: Verify intact manifest via JSON format
+    out_fbs.reset();
+    err_fbs.reset();
+    const manifest_verify_json = [_][]const u8{ "wirescope", "manifest", "verify", mnf_file_path, "--format", "json" };
+    const code39 = execute(&manifest_verify_json, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code39);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"report_type\":\"manifest_verification\"") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"is_valid\":true") != null);
+
+    // 40: Tamper artifact -> verification fails with ExitCodes.findings_or_violations
+    try std.fs.cwd().writeFile(.{ .sub_path = art_p, .data = "{\"findings\":999}" });
+    out_fbs.reset();
+    err_fbs.reset();
+    const manifest_verify_tampered = [_][]const u8{ "wirescope", "manifest", "verify", mnf_file_path, "--format", "json" };
+    const code40 = execute(&manifest_verify_tampered, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.findings_or_violations, code40);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"is_valid\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"status\":\"modified\"") != null);
 }

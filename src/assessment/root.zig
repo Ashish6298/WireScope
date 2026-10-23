@@ -16,19 +16,49 @@ pub const BuiltinProfiles = profile.BuiltinProfiles;
 pub const redact = @import("redact.zig");
 pub const redactSensitive = redact.redactSensitive;
 
-pub const AssessmentStatus = enum {
-    not_started,
-    in_progress,
-    completed,
-    partial,
-    cancelled,
-    failed,
-};
+pub const runner = @import("runner.zig");
+pub const AssessmentStatus = runner.AssessmentStatus;
+pub const AssessmentRunner = runner.AssessmentRunner;
+pub const AssessmentResult = runner.AssessmentResult;
+pub const AssessmentManifest = runner.AssessmentManifest;
+pub const AssessmentObservations = runner.AssessmentObservations;
+pub const AssessmentRunOptions = runner.AssessmentRunOptions;
+pub const AssessmentExecutionMode = runner.AssessmentExecutionMode;
+pub const TaskFailure = runner.TaskFailure;
+pub const DnsObservationRecord = runner.DnsObservationRecord;
+pub const TcpObservationRecord = runner.TcpObservationRecord;
+pub const TlsObservationRecord = runner.TlsObservationRecord;
+pub const HttpObservationRecord = runner.HttpObservationRecord;
+pub const ListenerObservationRecord = runner.ListenerObservationRecord;
+
+pub const baseline = @import("baseline.zig");
+pub const DiffClassification = baseline.DiffClassification;
+pub const BaselineItemType = baseline.BaselineItemType;
+pub const NormalizedBaselineItem = baseline.NormalizedBaselineItem;
+pub const BaselineSnapshot = baseline.BaselineSnapshot;
+pub const DiffEntry = baseline.DiffEntry;
+pub const BaselineDiffReport = baseline.BaselineDiffReport;
+pub const BaselineChain = baseline.BaselineChain;
+pub const BaselineError = baseline.BaselineError;
+pub const BaselineManager = baseline.BaselineManager;
+pub const normalizeObservations = baseline.normalizeObservations;
+
+pub const findings = @import("findings.zig");
+pub const FindingStatus = findings.FindingStatus;
+pub const FixVerificationOutcome = findings.FixVerificationOutcome;
+pub const EvidenceEntry = findings.EvidenceEntry;
+pub const StatusTransition = findings.StatusTransition;
+pub const TrackedFinding = findings.TrackedFinding;
+pub const FindingsTracker = findings.FindingsTracker;
+pub const generateFindingId = findings.generateFindingId;
 
 test "assessment root re-exports compile cleanly" {
     _ = config;
     _ = profile;
     _ = redact;
+    _ = runner;
+    _ = baseline;
+    _ = findings;
 
     const def_cfg = WireScopeConfig{};
     try def_cfg.validate();

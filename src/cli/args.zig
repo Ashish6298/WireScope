@@ -28,10 +28,12 @@ pub const Command = enum {
     https,
     diagnose,
     audit,
+    assess,
     discover,
     baseline,
     policy,
     history,
+    manifest,
     report,
     lab,
     unknown,
@@ -49,10 +51,12 @@ pub const Command = enum {
         if (std.mem.eql(u8, str, "https") or std.mem.eql(u8, str, "http")) return .https;
         if (std.mem.eql(u8, str, "diagnose")) return .diagnose;
         if (std.mem.eql(u8, str, "audit")) return .audit;
+        if (std.mem.eql(u8, str, "assess") or std.mem.eql(u8, str, "assessment")) return .assess;
         if (std.mem.eql(u8, str, "discover")) return .discover;
         if (std.mem.eql(u8, str, "baseline")) return .baseline;
         if (std.mem.eql(u8, str, "policy")) return .policy;
         if (std.mem.eql(u8, str, "history")) return .history;
+        if (std.mem.eql(u8, str, "manifest") or std.mem.eql(u8, str, "integrity")) return .manifest;
         if (std.mem.eql(u8, str, "report")) return .report;
         if (std.mem.eql(u8, str, "lab")) return .lab;
         return .unknown;
@@ -297,6 +301,17 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
     if (result.command == .discover and result.target == null) {
         result.target = result.subcommand;
     }
+    if (result.command == .audit and result.target == null) {
+        if (result.subcommand) |sub| {
+            if (std.mem.startsWith(u8, sub, "http://") or std.mem.startsWith(u8, sub, "https://")) {
+                result.target = sub;
+                result.subcommand = "http";
+            }
+        }
+    }
+    if (result.command == .assess and result.target == null) {
+        result.target = result.subcommand;
+    }
     if (result.dry_run) {
         result.preview = true;
     }
@@ -438,4 +453,21 @@ test "parse discover command and reconnaissance flags" {
     try testing.expectEqual(@as(usize, 500), parsed1.max_hosts);
     try testing.expectEqual(@as(usize, 50), parsed1.max_ports);
     try testing.expectEqual(@as(usize, 2000), parsed1.max_operations);
+}
+
+test "parse audit http command and options" {
+    const args1 = [_][]const u8{ "wirescope", "audit", "http", "https://localhost:8443/", "--format", "json", "--max-redirects", "3", "--allow-redirect-scope-expansion" };
+    const parsed1 = try parse(&args1);
+    try testing.expectEqual(Command.audit, parsed1.command);
+    try testing.expectEqualStrings("http", parsed1.subcommand.?);
+    try testing.expectEqualStrings("https://localhost:8443/", parsed1.target.?);
+    try testing.expectEqual(OutputFormat.json, parsed1.format);
+    try testing.expectEqual(@as(u32, 3), parsed1.max_redirects);
+    try testing.expect(parsed1.allow_redirect_scope_expansion);
+
+    const args2 = [_][]const u8{ "wirescope", "audit", "https://localhost:8443/" };
+    const parsed2 = try parse(&args2);
+    try testing.expectEqual(Command.audit, parsed2.command);
+    try testing.expectEqualStrings("http", parsed2.subcommand.?);
+    try testing.expectEqualStrings("https://localhost:8443/", parsed2.target.?);
 }

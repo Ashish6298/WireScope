@@ -1,5 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
+const policy_types = @import("../policy/types.zig");
+pub const PolicyDefinition = policy_types.PolicyDefinition;
 
 pub const ProfileValidationError = error{
     EmptyTargets,
@@ -39,6 +41,7 @@ pub const AssessmentProfile = struct {
     checks: ProfileChecks = .{},
     limits: ProfileLimits = .{},
     authorization_acknowledged: bool = false,
+    policy: ?PolicyDefinition = null,
 
     pub fn isLoopbackTarget(target: []const u8) bool {
         if (std.mem.eql(u8, target, "127.0.0.1") or
@@ -147,6 +150,7 @@ pub const BuiltinProfiles = struct {
             .timeout_ms = 2000,
         },
         .authorization_acknowledged = true,
+        .policy = policy_types.BuiltinPolicies.loopback_diagnostic,
     };
 
     pub const local_security_audit = AssessmentProfile{
@@ -170,6 +174,7 @@ pub const BuiltinProfiles = struct {
             .timeout_ms = 3000,
         },
         .authorization_acknowledged = true,
+        .policy = policy_types.BuiltinPolicies.local_hardened,
     };
 };
 

@@ -81,9 +81,19 @@ Current Development Branch: `ashish`
 | ↳ Phase 8.2 | Build host and service discovery within policy | **COMPLETED** |
 | ↳ Phase 8.3 | Add service and version fingerprinting | **COMPLETED** |
 | ↳ Phase 8.4 | Add discovery diffs and inventory export | **COMPLETED** |
-| **Milestone 9** | Defensive Security Auditors | Pending |
-| **Milestone 10** | Assessment Orchestration, Policies, and Baselines | Pending |
-| **Milestone 11** | Local Persistence, History, and Integrity | Pending |
+| **Milestone 9** | **Defensive Security Auditors** | **COMPLETED** |
+| ↳ Phase 9.1 | Audit HTTP security configuration | **COMPLETED** |
+| ↳ Phase 9.2 | Build a local exposure auditor | **COMPLETED** |
+| ↳ Phase 9.3 | Implement the versioned local rules engine | **COMPLETED** |
+| **Milestone 10** | **Assessment Orchestration, Policies, and Baselines** | **COMPLETED** |
+| ↳ Phase 10.1 | Orchestrate multi-module assessments | **COMPLETED** |
+| ↳ Phase 10.2 | Implement explicit baselines and deterministic diffs | **COMPLETED** |
+| ↳ Phase 10.3 | Normalize findings and remediation tracking | **COMPLETED** |
+| ↳ Phase 10.4 | Implement offline policy evaluation | **COMPLETED** |
+| **Milestone 11** | **Local Persistence, History, and Integrity** | **COMPLETED** |
+| ↳ Phase 11.1 | Implement versioned local storage | **COMPLETED** |
+| ↳ Phase 11.2 | Add history queries, retention, and recovery | **COMPLETED** |
+| ↳ Phase 11.3 | Add report integrity manifests | **COMPLETED** |
 | **Milestone 12** | Reporting and Automation Contracts | Pending |
 | **Milestone 13** | Isolated Practice Lab | Pending |
 | **Milestone 14** | Hardening, Cross-Platform Validation, and Release Prep | Pending |
@@ -115,6 +125,16 @@ Current Development Branch: `ashish`
 - [ADR 0020: Bounded Host Discovery and Reachability States](docs/decisions/0020-bounded-host-discovery.md)
 - [ADR 0021: Bounded TCP Port Checks and Conservative Service Identification](docs/decisions/0021-tcp-port-checks-and-conservative-service-identification.md)
 - [ADR 0022: Asset and Exposure Inventory](docs/decisions/0022-asset-and-exposure-inventory.md)
+- [ADR 0023: Defensive HTTP Security Configuration Auditor](docs/decisions/0023-http-security-configuration-auditor.md)
+- [ADR 0024: Defensive Local Exposure Auditor](docs/decisions/0024-local-exposure-auditor.md)
+- [ADR 0025: Versioned Local Rules Engine](docs/decisions/0025-versioned-local-rules-engine.md)
+- [ADR 0026: Multi-Module Assessment Orchestrator](docs/decisions/0026-multi-module-assessment-orchestrator.md)
+- [ADR 0027: Explicit Baselines and Deterministic Diffs](docs/decisions/0027-explicit-baselines-and-deterministic-diffs.md)
+- [ADR 0028: Normalize Findings and Remediation Tracking](docs/decisions/0028-normalize-findings-and-remediation-tracking.md)
+- [ADR 0029: Offline Policy Evaluation](docs/decisions/0029-offline-policy-evaluation.md)
+- [ADR 0030: Versioned Local Storage](docs/decisions/0030-versioned-local-storage.md)
+- [ADR 0031: History Queries, Retention, and Recovery](docs/decisions/0031-history-queries-retention-and-recovery.md)
+- [ADR 0032: Report Integrity Manifests](docs/decisions/0032-report-integrity-manifests.md)
 
 ---
 

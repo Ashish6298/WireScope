@@ -14,6 +14,8 @@ pub fn printRootHelp(writer: anytype) !void {
         \\  discover      Perform bounded asset discovery within explicit scope
         \\  baseline      Manage and compare baseline state snapshots
         \\  policy        Evaluate local security rules and exposure policies
+        \\  history       Query, inspect, compare, and prune assessment history
+        \\  manifest      Verify report artifact integrity manifests and detect tampering
         \\  lab           Execute reproducible local practice lab scenarios
         \\  capabilities  Inspect platform capabilities and supported features
         \\  version       Display WireScope version and compiler information
@@ -99,6 +101,17 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
             \\  http <url>              Audit HTTP security headers (HSTS, CSP, Cookies, CORS)
             \\  tls <host:port>         Audit TLS configuration and certificate expiry
             \\  local                   Audit local listening ports for unexpected wildcard exposure
+            \\  rules                   List versioned defensive rules and CVE disclaimer
+            \\  findings                List and track normalized defensive findings and lifecycle status
+            \\
+            \\Options (audit http):
+            \\  --max-redirects <n>             Maximum redirect hops to follow (default: 5)
+            \\  --max-response-size <bytes>     Maximum response size bound in bytes (default: 1048576)
+            \\  --allow-redirect-scope-expansion Allow redirects to follow destinations outside initial host
+            \\  --ca-bundle <path>              Custom trusted Certificate Authority (CA) bundle PEM file
+            \\  --insecure                      Explicitly bypass TLS certificate and hostname verification
+            \\  -t, --timeout <ms>              Total operation timeout in milliseconds (default: 5000)
+            \\  -f, --format <format>           Output format: terminal, json, markdown
             \\
         , .{});
     } else if (std.mem.eql(u8, cmd, "discover")) {
@@ -147,6 +160,64 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
             \\Actions:
             \\  check                   Evaluate local policy against current or saved observations
             \\  list                    List available built-in policy rules
+            \\
+        , .{});
+    } else if (std.mem.eql(u8, cmd, "assess") or std.mem.eql(u8, cmd, "assessment")) {
+        try writer.print(
+            \\wirescope assess — Multi-Module Assessment Runner & Orchestration
+            \\
+            \\Usage:
+            \\  wirescope assess [profile_id] [options]
+            \\
+            \\Profiles:
+            \\  loopback-diagnostics    Safe local loopback diagnostic checks for DNS, TCP, and listeners
+            \\  local-security-audit    Defensive inspection of local listeners and HTTP security headers
+            \\
+            \\Options:
+            \\  -p, --profile <id|path> Assessment profile to execute (default: loopback-diagnostics)
+            \\  --confirm-authorized    Explicitly acknowledge authorization for remote targets
+            \\  --preview, --dry-run    Preview planned execution tasks without network activity
+            \\  -t, --timeout <ms>      Per-operation probe timeout in milliseconds
+            \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\
+        , .{});
+    } else if (std.mem.eql(u8, cmd, "history")) {
+        try writer.print(
+            \\wirescope history — Assessment History Queries, Retention & Recovery
+            \\
+            \\Usage:
+            \\  wirescope history <action> [target] [options]
+            \\
+            \\Actions:
+            \\  list                    List historical assessment runs (default)
+            \\  inspect <id>            Inspect a specific assessment record
+            \\  compare <id1> <id2>     Compare two historical assessment runs
+            \\  delete <id>             Delete an assessment record safely
+            \\  prune                   Prune oldest assessment records according to retention policy
+            \\  recover                 Recover from interrupted writes and clean up orphaned temporary files
+            \\
+            \\Options:
+            \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\
+        , .{});
+    } else if (std.mem.eql(u8, cmd, "manifest")) {
+        try writer.print(
+            \\wirescope manifest — Report Artifact Integrity & Verification
+            \\
+            \\Usage:
+            \\  wirescope manifest <action> [target] [options]
+            \\
+            \\Actions:
+            \\  verify <manifest_path>  Verify report artifacts against cryptographic SHA-256 manifest
+            \\  inspect <manifest_path> Inspect manifest metadata, referenced artifacts, and hashes
+            \\
+            \\Options:
+            \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\
+            \\Notice:
+            \\  SHA-256 digests verify local integrity and detect modified/missing files.
+            \\  A local hash alone does NOT prove author identity or protect against
+            \\  an adversary with write access to both report and manifest.
             \\
         , .{});
     } else if (std.mem.eql(u8, cmd, "lab")) {

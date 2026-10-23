@@ -10,6 +10,7 @@ pub const storage = @import("storage/root.zig");
 pub const reporting = @import("reporting/root.zig");
 pub const lab = @import("lab/root.zig");
 pub const recon = @import("recon/root.zig");
+pub const audit = @import("audit/root.zig");
 
 pub const version = core.Version.string;
 
@@ -23,5 +24,6 @@ test "wirescope library root exports all modules" {
     _ = reporting;
     _ = lab;
     _ = recon;
+    _ = audit;
     try testing.expectEqualStrings("0.1.0-dev", version);
 }
