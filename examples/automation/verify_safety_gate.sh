@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-WIRESCOPE_BIN="${WIRESCOPE_BIN:-wirescope}"
+WIRESCOPE_BIN="${1:-${WIRESCOPE_BIN:-wirescope}}"
 REMOTE_TARGET="192.168.1.100"
 
 echo "=== Test 1: Remote target in non-interactive mode without confirmation ==="

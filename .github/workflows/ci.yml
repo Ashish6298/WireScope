@@ -37,20 +37,28 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Setup macOS Developer Tools
+        if: runner.os == 'macOS'
+        run: |
+          if [ -d "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk" ]; then
+            sudo xcode-select --switch /Library/Developer/CommandLineTools
+          elif [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+          fi
+          SDK_PATH=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || xcrun --show-sdk-path 2>/dev/null || echo "")
+          if [ -n "$SDK_PATH" ]; then
+            echo "SDKROOT=${SDK_PATH}" >> $GITHUB_ENV
+          fi
+          DEV_DIR=$(xcode-select -p 2>/dev/null || echo "")
+          if [ -n "$DEV_DIR" ]; then
+            echo "DEVELOPER_DIR=${DEV_DIR}" >> $GITHUB_ENV
+          fi
+          rm -rf ~/.cache/zig .zig-cache
+
       - name: Setup Zig Compiler
         uses: mlugg/setup-zig@v1
         with:
           version: 0.13.0
-
-      - name: Setup macOS SDK Environment
-        if: runner.os == 'macOS'
-        run: |
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-          fi
-          SDK_PATH=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || xcrun --show-sdk-path)
-          echo "SDKROOT=${SDK_PATH}" >> $GITHUB_ENV
-          rm -rf ~/.cache/zig
 
       - name: Build Library and CLI
         run: zig build
@@ -77,8 +85,11 @@ jobs:
           ./zig-out/bin/wirescope capabilities --format json
           ./zig-out/bin/wirescope lab list
           ./zig-out/bin/wirescope lab run dns_failure
-          bash examples/automation/verify_safety_gate.sh ./zig-out/bin/wirescope
-          bash examples/automation/check_local_policy.sh ./zig-out/bin/wirescope
+          export PATH="$(pwd)/zig-out/bin:$PATH"
+          export WIRESCOPE_BIN="$(pwd)/zig-out/bin/wirescope"
+          bash examples/automation/verify_safety_gate.sh "$WIRESCOPE_BIN"
+          bash examples/automation/check_local_policy.sh "$WIRESCOPE_BIN"
+
 
   cross_compilation_verification:
     name: Cross-Compilation Feasibility

@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-WIRESCOPE_BIN="${WIRESCOPE_BIN:-wirescope}"
+WIRESCOPE_BIN="${1:-${WIRESCOPE_BIN:-wirescope}}"
 OUTPUT_JSON="policy_eval_report.json"
 
 echo "=== Running WireScope Non-Interactive Policy Evaluation ==="
