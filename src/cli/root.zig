@@ -1442,6 +1442,103 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         }
     }
 
+    // 20. Versioned JSON Reports & Schema Validation dispatch (Milestone 12 Phase 12.1)
+    if (parsed.command == .report and (parsed.subcommand == null or !std.mem.eql(u8, parsed.subcommand.?, "manifest"))) {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+
+        const action = parsed.subcommand orelse "validate";
+        const file_path = parsed.target;
+
+        if (std.mem.eql(u8, action, "validate")) {
+            const target_file = file_path orelse {
+                stderr.print("Error: Report file path required for validation. Usage: wirescope report validate <report.json>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(target_file, .{}) catch |err| {
+                stderr.print("Error opening report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const content = file.readToEndAlloc(allocator, 50 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(content);
+
+            wirescope.reporting.validateReportJson(allocator, content) catch |err| {
+                stderr.print("Report validation failed for '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            switch (parsed.format) {
+                .terminal => {
+                    stdout.print("Report '{s}' successfully validated against schema v{d}.\n", .{
+                        target_file,
+                        wirescope.reporting.REPORT_SCHEMA_VERSION,
+                    }) catch return ExitCodes.operational_failure;
+                },
+                .json => {
+                    stdout.print(
+                        \\{{"status":"valid","schema_version":{d},"file":"{s}"}}
+                        \\
+                    , .{
+                        wirescope.reporting.REPORT_SCHEMA_VERSION,
+                        target_file,
+                    }) catch return ExitCodes.operational_failure;
+                },
+                .markdown => {
+                    stdout.print(
+                        \\# Report Validation: SUCCESS
+                        \\
+                        \\- **File:** `{s}`
+                        \\- **Schema Version:** `{d}`
+                        \\- **Validation:** **VALID**
+                        \\
+                    , .{
+                        target_file,
+                        wirescope.reporting.REPORT_SCHEMA_VERSION,
+                    }) catch return ExitCodes.operational_failure;
+                },
+            }
+
+            return ExitCodes.success;
+        } else if (std.mem.eql(u8, action, "normalize")) {
+            const target_file = file_path orelse {
+                stderr.print("Error: Report file path required for normalization. Usage: wirescope report normalize <report.json>\n", .{}) catch {};
+                return ExitCodes.invalid_input;
+            };
+
+            const file = std.fs.cwd().openFile(target_file, .{}) catch |err| {
+                stderr.print("Error opening report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer file.close();
+
+            const content = file.readToEndAlloc(allocator, 50 * 1024 * 1024) catch |err| {
+                stderr.print("Error reading report file '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.operational_failure;
+            };
+            defer allocator.free(content);
+
+            const normalized = wirescope.reporting.normalizeJsonReport(allocator, content) catch |err| {
+                stderr.print("Report normalization failed for '{s}': {s}\n", .{ target_file, @errorName(err) }) catch {};
+                return ExitCodes.invalid_input;
+            };
+            defer allocator.free(normalized);
+
+            stdout.writeAll(normalized) catch return ExitCodes.operational_failure;
+            stdout.writeAll("\n") catch return ExitCodes.operational_failure;
+            return ExitCodes.success;
+        } else {
+            stderr.print("Error: Unknown report action '{s}'. Supported actions: validate, normalize\n", .{action}) catch {};
+            return ExitCodes.invalid_input;
+        }
+    }
+
     // 19. Diagnostics, Audits, Reconnaissance, and Lab commands (skeleton dispatcher)
     switch (parsed.format) {
         .json => {
@@ -2093,4 +2190,70 @@ test "execute discover command with preview, caps, remote authorization, and exc
     try testing.expectEqual(ExitCodes.findings_or_violations, code40);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"is_valid\":false") != null);
     try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"status\":\"modified\"") != null);
+
+    // 25. Versioned JSON Reports & Schema Validation Dispatch (Milestone 12 Phase 12.1)
+    // 41: Report validate without path returns invalid_input
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_no_path = [_][]const u8{ "wirescope", "report", "validate" };
+    const code41 = execute(&report_no_path, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code41);
+
+    // Setup report test fixture
+    const valid_report_path = try std.fs.path.join(allocator, &[_][]const u8{ test_mnf_dir, "assessment_report.json" });
+    defer allocator.free(valid_report_path);
+
+    var valid_targets = [_][]const u8{"127.0.0.1"};
+    var valid_ports = [_]u16{80};
+    const rep_data = wirescope.reporting.AssessmentReportData{
+        .assessment_id = "asm-cli-report-1",
+        .profile_id = "local-security-audit",
+        .profile_name = "Local Security Audit",
+        .started_at_ms = 1710000000000,
+        .completed_at_ms = 1710000005000,
+        .duration_ms = 5000,
+        .status = "completed",
+        .manifest_hash = "0000000000000000000000000000000000000000000000000000000000000000".*,
+        .targets = &valid_targets,
+        .ports = &valid_ports,
+        .rate_limit_rps = 10,
+        .timeout_ms = 5000,
+        .tasks_planned = 1,
+        .tasks_executed = 1,
+        .tasks_succeeded = 1,
+        .tasks_failed = 0,
+        .is_complete = true,
+    };
+    const valid_json_str = try wirescope.reporting.serializeReport(allocator, &rep_data);
+    defer allocator.free(valid_json_str);
+    try std.fs.cwd().writeFile(.{ .sub_path = valid_report_path, .data = valid_json_str });
+
+    // 42: Validate compliant report
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_val_cmd = [_][]const u8{ "wirescope", "report", "validate", valid_report_path };
+    const code42 = execute(&report_val_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code42);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "successfully validated against schema v1") != null);
+
+    // 43: Validate corrupted / invalid report (missing fields)
+    const invalid_report_path = try std.fs.path.join(allocator, &[_][]const u8{ test_mnf_dir, "invalid_report.json" });
+    defer allocator.free(invalid_report_path);
+    try std.fs.cwd().writeFile(.{ .sub_path = invalid_report_path, .data = "{\"schema_version\": 1}" });
+
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_val_inv = [_][]const u8{ "wirescope", "report", "validate", invalid_report_path };
+    const code43 = execute(&report_val_inv, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.invalid_input, code43);
+    try testing.expect(std.mem.indexOf(u8, err_fbs.getWritten(), "Report validation failed") != null);
+
+    // 44: Normalize report JSON
+    out_fbs.reset();
+    err_fbs.reset();
+    const report_norm_cmd = [_][]const u8{ "wirescope", "report", "normalize", valid_report_path };
+    const code44 = execute(&report_norm_cmd, out_fbs.writer(), err_fbs.writer());
+    try testing.expectEqual(ExitCodes.success, code44);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"schema_version\": 1") != null);
+    try testing.expect(std.mem.indexOf(u8, out_fbs.getWritten(), "\"started_at_ms\": 1710000000000") != null);
 }
