@@ -58,6 +58,9 @@ pub fn inspectListenersMacos(allocator: std.mem.Allocator) !ListenerInspectionRe
 
 test "macos route inspection dummy check" {
     if (@import("builtin").os.tag != .macos) return;
-    var res = try inspectRoutesMacos(testing.allocator);
+    var res = inspectRoutesMacos(testing.allocator) catch |err| switch (err) {
+        error.AccessDenied, error.PermissionDenied, error.SystemResources => return error.SkipZigTest,
+        else => return err,
+    };
     defer res.deinit(testing.allocator);
 }

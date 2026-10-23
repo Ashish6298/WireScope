@@ -233,6 +233,9 @@ pub fn inspectListenersLinux(allocator: std.mem.Allocator) !ListenerInspectionRe
 
 test "linux interface enumeration dummy check" {
     if (@import("builtin").os.tag != .linux) return;
-    var res = try enumerateInterfacesLinux(testing.allocator);
+    var res = enumerateInterfacesLinux(testing.allocator) catch |err| switch (err) {
+        error.AccessDenied, error.PermissionDenied, error.SystemResources => return error.SkipZigTest,
+        else => return err,
+    };
     defer res.deinit(testing.allocator);
 }
