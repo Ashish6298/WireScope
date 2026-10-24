@@ -18,8 +18,13 @@ pub const help = @import("help.zig");
 pub const printRootHelp = help.printRootHelp;
 pub const printSubcommandHelp = help.printSubcommandHelp;
 
+pub const theme = @import("theme.zig");
+pub const Theme = theme.Theme;
+pub const interactive = @import("interactive.zig");
+
 /// Main CLI execution entry point
 pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u8 {
+    Theme.enableVirtualTerminal();
     const parsed = parseArgs(raw_args) catch |err| {
         switch (err) {
             error.MissingOptionValue => {
@@ -89,6 +94,11 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
     if (parsed.command == .capabilities) {
         printCapabilities(stdout, parsed.format) catch return ExitCodes.operational_failure;
         return ExitCodes.success;
+    }
+
+    // 4. Interactive menu dispatch
+    if (parsed.command == .menu) {
+        return interactive.runInteractive(stdout, stderr);
     }
 
     // 4. Unknown command dispatch

@@ -36,11 +36,13 @@ pub const Command = enum {
     manifest,
     report,
     lab,
+    menu,
     unknown,
 
     pub fn fromString(str: []const u8) Command {
         if (std.mem.eql(u8, str, "help")) return .help;
         if (std.mem.eql(u8, str, "version")) return .version;
+        if (std.mem.eql(u8, str, "menu") or std.mem.eql(u8, str, "interactive")) return .menu;
         if (std.mem.eql(u8, str, "capabilities") or std.mem.eql(u8, str, "capability")) return .capabilities;
         if (std.mem.eql(u8, str, "interfaces") or std.mem.eql(u8, str, "interface")) return .interfaces;
         if (std.mem.eql(u8, str, "routes") or std.mem.eql(u8, str, "route")) return .routes;
@@ -113,6 +115,7 @@ pub const ParsedCli = struct {
     diff_path: ?[]const u8 = null,
     force: bool = false,
     redact: bool = false,
+    no_color: bool = false,
 };
 
 pub fn parse(args: []const []const u8) ParseError!ParsedCli {
@@ -141,6 +144,8 @@ pub fn parse(args: []const []const u8) ParseError!ParsedCli {
             result.force = true;
         } else if (std.mem.eql(u8, arg, "--redact") or std.mem.eql(u8, arg, "--redact-sensitive")) {
             result.redact = true;
+        } else if (std.mem.eql(u8, arg, "--no-color")) {
+            result.no_color = true;
         } else if (std.mem.eql(u8, arg, "--dry-run")) {
             result.dry_run = true;
         } else if (std.mem.eql(u8, arg, "--format") or std.mem.eql(u8, arg, "-f")) {
@@ -476,4 +481,16 @@ test "parse audit http command and options" {
     try testing.expectEqual(Command.audit, parsed2.command);
     try testing.expectEqualStrings("http", parsed2.subcommand.?);
     try testing.expectEqualStrings("https://localhost:8443/", parsed2.target.?);
+}
+
+test "parse menu command and no-color flag" {
+    const args1 = [_][]const u8{ "wirescope", "menu" };
+    const parsed1 = try parse(&args1);
+    try testing.expectEqual(Command.menu, parsed1.command);
+    try testing.expect(!parsed1.no_color);
+
+    const args2 = [_][]const u8{ "wirescope", "interactive", "--no-color" };
+    const parsed2 = try parse(&args2);
+    try testing.expectEqual(Command.menu, parsed2.command);
+    try testing.expect(parsed2.no_color);
 }

@@ -1,45 +1,92 @@
 const std = @import("std");
 const testing = std.testing;
+const theme = @import("theme.zig");
+const Theme = theme.Theme;
 
 pub fn printRootHelp(writer: anytype) !void {
-    try writer.print(
-        \\WireScope — Local-First Network Diagnostics and Defensive Toolkit
-        \\
-        \\Usage:
-        \\  wirescope <command> [subcommand] [target] [options]
-        \\
-        \\Commands:
-        \\  diagnose      Run network diagnostics (dns, tcp, tls, interfaces, routes)
-        \\  audit         Run defensive security audits (tls, http, local)
-        \\  discover      Perform bounded asset discovery within explicit scope
-        \\  baseline      Manage and compare baseline state snapshots
-        \\  policy        Evaluate local security rules and exposure policies
-        \\  history       Query, inspect, compare, and prune assessment history
-        \\  manifest      Verify report artifact integrity manifests and detect tampering
-        \\  report        Generate, validate, and normalize versioned reports
-        \\  lab           Execute reproducible local practice lab scenarios
-        \\  capabilities  Inspect platform capabilities and supported features
-        \\  version       Display WireScope version and compiler information
-        \\  help          Display help information for a command
-        \\
-        \\Global Options:
-        \\  -f, --format <term|json|md>  Output format (default: terminal)
-        \\  -t, --timeout <ms>           Operation timeout in milliseconds (default: 5000)
-        \\  -o, --output <path>          Save output to explicit file path
-        \\  -y, --non-interactive        Disable interactive confirmation prompts
-        \\      --dry-run                Preview assessment plan without sending network probes
-        \\  -h, --help                   Show help for command
-        \\  -v, --version                Show version information
-        \\
-        \\Examples:
-        \\  wirescope diagnose dns example.com --format json
-        \\  wirescope diagnose tcp 127.0.0.1:8080 --timeout 2000
-        \\  wirescope audit http https://localhost:8443
-        \\  wirescope discover 127.0.0.1 --ports 80,443 --preview
-        \\  wirescope capabilities --format json
-        \\  wirescope lab run dns_failure
-        \\
-    , .{});
+    const use_color = Theme.shouldColorize(false);
+    Theme.enableVirtualTerminal();
+
+    try Theme.printBanner(writer, use_color);
+
+    if (use_color) {
+        try writer.writeAll(
+            "\x1b[1;96mUSAGE:\x1b[0m\n" ++
+            "  wirescope <command> [subcommand] [target] [options]\n\n" ++
+            "\x1b[1;93mQUICK START (GUIDED MODE):\x1b[0m\n" ++
+            "  \x1b[1;97mwirescope menu\x1b[0m              Launch guided interactive console\n\n" ++
+            "\x1b[1;96mCORE COMMANDS:\x1b[0m\n" ++
+            "  \x1b[1;97mdiagnose\x1b[0m     Run network diagnostics (dns, tcp, tls, interfaces, routes)\n" ++
+            "  \x1b[1;97maudit\x1b[0m        Run defensive security audits (tls, http, local)\n" ++
+            "  \x1b[1;97mpolicy\x1b[0m       Evaluate local security rules and exposure policies\n" ++
+            "  \x1b[1;97mbaseline\x1b[0m     Manage and compare baseline state snapshots (save, diff)\n" ++
+            "  \x1b[1;97mdiscover\x1b[0m     Perform bounded asset discovery within explicit scope\n" ++
+            "  \x1b[1;97mlab\x1b[0m          Execute reproducible local practice lab scenarios\n" ++
+            "  \x1b[1;97mhistory\x1b[0m      Query, inspect, compare, and prune assessment history\n" ++
+            "  \x1b[1;97mmanifest\x1b[0m     Verify report artifact integrity manifests and detect tampering\n" ++
+            "  \x1b[1;97mreport\x1b[0m       Generate, validate, and normalize versioned reports\n" ++
+            "  \x1b[1;97mcapabilities\x1b[0m Inspect platform capabilities and supported features\n" ++
+            "  \x1b[1;97mversion\x1b[0m      Display WireScope version and compiler information\n" ++
+            "  \x1b[1;97mhelp\x1b[0m         Display help information for a command\n\n" ++
+            "\x1b[1;96mGLOBAL OPTIONS:\x1b[0m\n" ++
+            "  \x1b[94m-f, --format <term|json|md>\x1b[0m  Output format (default: terminal)\n" ++
+            "  \x1b[94m-t, --timeout <ms>\x1b[0m           Operation timeout in milliseconds (default: 5000)\n" ++
+            "  \x1b[94m-o, --output <path>\x1b[0m          Save output to explicit file path\n" ++
+            "  \x1b[94m-y, --non-interactive\x1b[0m        Disable interactive confirmation prompts\n" ++
+            "  \x1b[94m    --no-color\x1b[0m               Disable ANSI color output\n" ++
+            "  \x1b[94m    --dry-run\x1b[0m                Preview assessment plan without network probes\n" ++
+            "  \x1b[94m-h, --help\x1b[0m                   Show help for command\n" ++
+            "  \x1b[94m-v, --version\x1b[0m                Show version information\n\n" ++
+            "\x1b[1;96mEXAMPLES:\x1b[0m\n" ++
+            "  \x1b[92m$\x1b[0m wirescope menu\n" ++
+            "  \x1b[92m$\x1b[0m wirescope audit local\n" ++
+            "  \x1b[92m$\x1b[0m wirescope diagnose tcp 127.0.0.1:8080 --timeout 2000\n" ++
+            "  \x1b[92m$\x1b[0m wirescope diagnose dns example.com --format json\n" ++
+            "  \x1b[92m$\x1b[0m wirescope policy check\n" ++
+            "  \x1b[92m$\x1b[0m wirescope lab run dns_failure\n\n"
+        );
+    } else {
+        try writer.print(
+            \\Usage:
+            \\  wirescope <command> [subcommand] [target] [options]
+            \\
+            \\Quick Start (Guided Mode):
+            \\  wirescope menu              Launch guided interactive console
+            \\
+            \\Commands:
+            \\  diagnose      Run network diagnostics (dns, tcp, tls, interfaces, routes)
+            \\  audit         Run defensive security audits (tls, http, local)
+            \\  policy        Evaluate local security rules and exposure policies
+            \\  baseline      Manage and compare baseline state snapshots
+            \\  discover      Perform bounded asset discovery within explicit scope
+            \\  lab           Execute reproducible local practice lab scenarios
+            \\  history       Query, inspect, compare, and prune assessment history
+            \\  manifest      Verify report artifact integrity manifests and detect tampering
+            \\  report        Generate, validate, and normalize versioned reports
+            \\  capabilities  Inspect platform capabilities and supported features
+            \\  version       Display WireScope version and compiler information
+            \\  help          Display help information for a command
+            \\
+            \\Global Options:
+            \\  -f, --format <term|json|md>  Output format (default: terminal)
+            \\  -t, --timeout <ms>           Operation timeout in milliseconds (default: 5000)
+            \\  -o, --output <path>          Save output to explicit file path
+            \\  -y, --non-interactive        Disable interactive confirmation prompts
+            \\      --no-color               Disable ANSI color output
+            \\      --dry-run                Preview assessment plan without network probes
+            \\  -h, --help                   Show help for command
+            \\  -v, --version                Show version information
+            \\
+            \\Examples:
+            \\  $ wirescope menu
+            \\  $ wirescope audit local
+            \\  $ wirescope diagnose tcp 127.0.0.1:8080 --timeout 2000
+            \\  $ wirescope diagnose dns example.com --format json
+            \\  $ wirescope policy check
+            \\  $ wirescope lab run dns_failure
+            \\
+        , .{});
+    }
 }
 
 pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
@@ -93,62 +140,67 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
         , .{});
     } else if (std.mem.eql(u8, cmd, "audit")) {
         try writer.print(
-            \\wirescope audit — Defensive Security Configuration Audits
+            \\wirescope audit — Defensive Security Audits
             \\
             \\Usage:
-            \\  wirescope audit <subcommand> [target] [options]
+            \\  wirescope audit <target_type> [target] [options]
             \\
-            \\Subcommands:
-            \\  http <url>              Audit HTTP security headers (HSTS, CSP, Cookies, CORS)
-            \\  tls <host:port>         Audit TLS configuration and certificate expiry
-            \\  local                   Audit local listening ports for unexpected wildcard exposure
-            \\  rules                   List versioned defensive rules and CVE disclaimer
-            \\  findings                List and track normalized defensive findings and lifecycle status
+            \\Audit Types:
+            \\  local                   Audit local system listeners and exposure risks
+            \\  http <url>              Audit HTTP security headers, TLS posture, and redirects
+            \\  tls <host:port>         Audit TLS configuration against security policy
             \\
-            \\Options (audit http):
-            \\  --max-redirects <n>             Maximum redirect hops to follow (default: 5)
-            \\  --max-response-size <bytes>     Maximum response size bound in bytes (default: 1048576)
-            \\  --allow-redirect-scope-expansion Allow redirects to follow destinations outside initial host
-            \\  --ca-bundle <path>              Custom trusted Certificate Authority (CA) bundle PEM file
-            \\  --insecure                      Explicitly bypass TLS certificate and hostname verification
-            \\  -t, --timeout <ms>              Total operation timeout in milliseconds (default: 5000)
-            \\  -f, --format <format>           Output format: terminal, json, markdown
+            \\Options:
+            \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\  -o, --output <path>     Save audit results to file
+            \\      --max-redirects <n> Maximum HTTP redirects to follow (default: 5)
+            \\      --max-size <bytes>  Maximum HTTP response body size (default: 1 MB)
             \\
         , .{});
     } else if (std.mem.eql(u8, cmd, "discover")) {
         try writer.print(
-            \\wirescope discover — Authorized Bounded Asset Reconnaissance & Scope Preview
+            \\wirescope discover — Bounded Target Reconnaissance
             \\
             \\Usage:
-            \\  wirescope discover <target|cidr> [options]
+            \\  wirescope discover <target_spec> [options]
+            \\
+            \\Target Specifications:
+            \\  Single IP:              192.168.1.100
+            \\  CIDR Range:             192.168.1.0/24 (prefixes between /24 and /32 only)
+            \\  Hostname:               internal-host.local
             \\
             \\Options:
-            \\  --ports <ports>         Target ports or ranges (e.g. '80,443' or '80-85')
-            \\  --exclude <targets>     Target IPs, hostnames, or CIDRs to exclude
-            \\  --confirm-authorized    Acknowledge explicit authorization for remote non-loopback targets
-            \\  --preview, --dry-run    Display planned host/port/check operation count without executing
-            \\  --max-hosts <n>         Maximum host cap (default: 256)
-            \\  --max-ports <n>         Maximum port cap (default: 100)
-            \\  --max-operations <n>    Maximum total operations cap (default: 5000)
-            \\  -t, --timeout <ms>      Per-operation probe timeout in milliseconds (default: 5000)
-            \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\  --ports <ports>         Target ports: single (80), list (80,443), range (80-90)
+            \\  --exclude <targets>     Comma-separated IPs or subnets to strictly exclude
+            \\  --confirm-authorized    Explicitly acknowledge authorization for remote targets
+            \\  --preview               Preview assessment plan without network activity
+            \\  --max-hosts <n>         Host cap (default: 256)
+            \\  --max-ports <n>         Port cap (default: 100)
+            \\  --max-operations <n>    Total operation cap (default: 5000)
+            \\  --concurrency <n>       Concurrent probes (default: 4, max: 16)
             \\
-            \\Disclaimer:
-            \\  WireScope cannot verify legal permission or ownership; operators bear sole
-            \\  legal responsibility for ensuring explicit written authorization before assessing remote targets.
+            \\Safety Invariants:
+            \\  - Loopback targets execute without authorization flag
+            \\  - Remote targets require explicit --confirm-authorized
+            \\  - Broad CIDRs (< /24) are prohibited
             \\
         , .{});
     } else if (std.mem.eql(u8, cmd, "baseline")) {
         try writer.print(
-            \\wirescope baseline — Baseline Snapshot Management & Diffs
+            \\wirescope baseline — Exposure Baseline Management & Drift Detection
             \\
             \\Usage:
             \\  wirescope baseline <action> [options]
             \\
             \\Actions:
-            \\  save <name>             Save current assessment as baseline snapshot
-            \\  diff <name>             Compare current observations against named baseline
-            \\  list                    List stored baseline snapshots
+            \\  save                    Capture current local listeners into baseline snapshot
+            \\  diff                    Compare current state against saved baseline snapshot
+            \\
+            \\Options:
+            \\  -o, --output <path>     Snapshot storage path (default: .wirescope/baseline.json)
+            \\      --diff <path>       Compare against specific baseline snapshot file
+            \\      --force             Overwrite existing baseline snapshot without prompting
+            \\  -f, --format <format>   Output format: terminal, json, markdown
             \\
         , .{});
     } else if (std.mem.eql(u8, cmd, "policy")) {
@@ -161,6 +213,10 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
             \\Actions:
             \\  check                   Evaluate local policy against current or saved observations
             \\  list                    List available built-in policy rules
+            \\
+            \\Options:
+            \\  -f, --format <format>   Output format: terminal, json, markdown
+            \\  -p, --profile <path>    Custom security policy file path
             \\
         , .{});
     } else if (std.mem.eql(u8, cmd, "assess") or std.mem.eql(u8, cmd, "assessment")) {
