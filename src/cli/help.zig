@@ -46,75 +46,85 @@ pub fn printRootHelp(writer: anytype) !void {
 
     if (use_color) {
         try writer.writeAll(
-            "  \x1b[1m\x1b[38;2;140;155;170mUSAGE\x1b[0m\n" ++
-            "    wirescope \x1b[38;2;140;155;170m<command>\x1b[0m [subcommand] [target] [options]\n\n" ++
-            "  \x1b[1m\x1b[38;2;140;155;170mQUICK START\x1b[0m\n" ++
-            "    \x1b[1m\x1b[38;2;205;212;220mmenu          \x1b[0mLaunch guided interactive console\n\n" ++
-            "  \x1b[1m\x1b[38;2;140;155;170mCORE COMMANDS\x1b[0m\n" ++
-            "    \x1b[1m\x1b[38;2;205;212;220mdiagnose      \x1b[0mRun network diagnostics (dns, tcp, tls, interfaces, routes)\n" ++
-            "    \x1b[1m\x1b[38;2;205;212;220maudit         \x1b[0mRun defensive security audits (tls, http, local)\n" ++
-            "    \x1b[1m\x1b[38;2;205;212;220mpolicy        \x1b[0mEvaluate local security rules and exposure policies\n" ++
-            "    \x1b[1m\x1b[38;2;205;212;220mbaseline      \x1b[0mSave and compare baseline state snapshots\n" ++
-            "    \x1b[1m\x1b[38;2;205;212;220mdiscover      \x1b[0mBounded asset discovery within explicit scope\n" ++
-            "    \x1b[1m\x1b[38;2;205;212;220mlab           \x1b[0mRun reproducible local practice scenarios\n" ++
-            "    \x1b[1m\x1b[38;2;205;212;220mhistory       \x1b[0mQuery, inspect, compare and prune history\n" ++
-            "    \x1b[1m\x1b[38;2;205;212;220mmanifest      \x1b[0mVerify report integrity manifests\n" ++
-            "    \x1b[1m\x1b[38;2;205;212;220mreport        \x1b[0mGenerate, validate and normalize reports\n" ++
-            "    \x1b[1m\x1b[38;2;205;212;220mcapabilities  \x1b[0mInspect platform capabilities\n" ++
-            "    \x1b[1m\x1b[38;2;205;212;220mversion       \x1b[0mShow version and compiler information\n" ++
-            "    \x1b[1m\x1b[38;2;205;212;220mhelp          \x1b[0mShow help for a command\n\n" ++
-            "  \x1b[1m\x1b[38;2;140;155;170mGLOBAL OPTIONS\x1b[0m\n" ++
-            "    \x1b[38;2;140;155;170m-f, --format <term|json|md>   \x1b[0m\x1b[90mOutput format (default: term)\x1b[0m\n" ++
-            "    \x1b[38;2;140;155;170m-t, --timeout <ms>            \x1b[0m\x1b[90mOperation timeout (default: 5000)\x1b[0m\n" ++
-            "    \x1b[38;2;140;155;170m-o, --output <path>           \x1b[0m\x1b[90mSave output to a file\x1b[0m\n" ++
-            "    \x1b[38;2;140;155;170m-y, --non-interactive         \x1b[0m\x1b[90mDisable confirmation prompts\x1b[0m\n" ++
-            "    \x1b[38;2;140;155;170m    --no-color                \x1b[0m\x1b[90mDisable ANSI colors\x1b[0m\n" ++
-            "    \x1b[38;2;140;155;170m    --dry-run                 \x1b[0m\x1b[90mPreview the plan, no network probes\x1b[0m\n" ++
-            "    \x1b[38;2;140;155;170m-h, --help                    \x1b[0m\x1b[90mShow help\x1b[0m\n" ++
-            "    \x1b[38;2;140;155;170m-v, --version                 \x1b[0m\x1b[90mShow version\x1b[0m\n\n" ++
-            "  \x1b[1m\x1b[38;2;140;155;170mEXAMPLES\x1b[0m\n" ++
-            "    \x1b[38;2;70;80;92m$\x1b[0m wirescope audit local\n" ++
-            "    \x1b[38;2;70;80;92m$\x1b[0m wirescope diagnose tcp 127.0.0.1:8080 --timeout 2000\n" ++
-            "    \x1b[38;2;70;80;92m$\x1b[0m wirescope diagnose dns example.com --format json\n" ++
-            "    \x1b[38;2;70;80;92m$\x1b[0m wirescope lab run dns_failure\n\n" ++
-            "  \x1b[38;2;70;80;92m────────────────────────────────────────────────────────────────────────────\x1b[0m\n" ++
-            "  \x1b[90mRun 'wirescope help <command>' for details on one command\x1b[0m\n\n"
+            "  \x1b[1m\x1b[38;2;205;212;220mwirescope\x1b[0m \x1b[38;2;140;155;170m<command>\x1b[0m \x1b[90m[subcommand] [target] [options]\x1b[0m\n" ++
+            "\n" ++
+            "  \x1b[38;2;70;80;92m╭─\x1b[0m \x1b[1m\x1b[38;2;140;155;170massess\x1b[0m \x1b[38;2;70;80;92m─────────────────────────────────────────────────────────────────╮\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[1m\x1b[38;2;205;212;220mdiagnose      \x1b[0m\x1b[90mRun network diagnostics (dns, tcp, tls, interfaces, routes)\x1b[0m\x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[1m\x1b[38;2;205;212;220maudit         \x1b[0m\x1b[90mRun defensive security audits (tls, http, local)\x1b[0m           \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[1m\x1b[38;2;205;212;220mpolicy        \x1b[0m\x1b[90mEvaluate local security rules and exposure policies\x1b[0m        \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[1m\x1b[38;2;205;212;220mdiscover      \x1b[0m\x1b[90mBounded asset discovery within explicit scope\x1b[0m              \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m╰──────────────────────────────────────────────────────────────────────────╯\x1b[0m\n" ++
+            "\n" ++
+            "  \x1b[38;2;70;80;92m╭─\x1b[0m \x1b[1m\x1b[38;2;140;155;170mtrack\x1b[0m \x1b[38;2;70;80;92m──────────────────────────────────────────────────────────────────╮\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[1m\x1b[38;2;205;212;220mbaseline      \x1b[0m\x1b[90mSave and compare baseline state snapshots\x1b[0m                  \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[1m\x1b[38;2;205;212;220mhistory       \x1b[0m\x1b[90mQuery, inspect, compare and prune history\x1b[0m                  \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[1m\x1b[38;2;205;212;220mmanifest      \x1b[0m\x1b[90mVerify report integrity manifests\x1b[0m                          \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[1m\x1b[38;2;205;212;220mreport        \x1b[0m\x1b[90mGenerate, validate and normalize reports\x1b[0m                   \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m╰──────────────────────────────────────────────────────────────────────────╯\x1b[0m\n" ++
+            "\n" ++
+            "  \x1b[38;2;70;80;92m╭─\x1b[0m \x1b[1m\x1b[38;2;140;155;170mpractice\x1b[0m \x1b[38;2;70;80;92m───────────────────────────────────────────────────────────────╮\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[1m\x1b[38;2;205;212;220mlab           \x1b[0m\x1b[90mRun reproducible local practice scenarios\x1b[0m                  \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m╰──────────────────────────────────────────────────────────────────────────╯\x1b[0m\n" ++
+            "\n" ++
+            "  \x1b[38;2;70;80;92m╭─\x1b[0m \x1b[1m\x1b[38;2;140;155;170msystem\x1b[0m \x1b[38;2;70;80;92m─────────────────────────────────────────────────────────────────╮\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[1m\x1b[38;2;205;212;220mcapabilities  \x1b[0m\x1b[90mInspect platform capabilities\x1b[0m                              \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[1m\x1b[38;2;205;212;220mversion       \x1b[0m\x1b[90mShow version and compiler information\x1b[0m                      \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[1m\x1b[38;2;205;212;220mhelp          \x1b[0m\x1b[90mShow help for a command\x1b[0m                                    \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m╰──────────────────────────────────────────────────────────────────────────╯\x1b[0m\n" ++
+            "\n" ++
+            "  \x1b[38;2;70;80;92m╭─\x1b[0m \x1b[1m\x1b[38;2;140;155;170moptions\x1b[0m \x1b[38;2;70;80;92m────────────────────────────────────────────────────────────────╮\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[38;2;140;155;170m-f, --format <term|json|md>   \x1b[0m\x1b[90mOutput format\x1b[0m                              \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[38;2;140;155;170m-t, --timeout <ms>            \x1b[0m\x1b[90mOperation timeout (5000)\x1b[0m                   \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[38;2;140;155;170m-o, --output <path>           \x1b[0m\x1b[90mSave output to a file\x1b[0m                      \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[38;2;140;155;170m-y, --non-interactive         \x1b[0m\x1b[90mSkip confirmation prompts\x1b[0m                  \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[38;2;140;155;170m    --no-color                \x1b[0m\x1b[90mDisable ANSI colors\x1b[0m                        \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[38;2;140;155;170m    --dry-run                 \x1b[0m\x1b[90mPreview plan, no probes\x1b[0m                    \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[38;2;140;155;170m-h, --help                    \x1b[0m\x1b[90mShow help\x1b[0m                                  \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[38;2;140;155;170m-v, --version                 \x1b[0m\x1b[90mShow version\x1b[0m                               \x1b[38;2;70;80;92m│\x1b[0m\n" ++
+            "  \x1b[38;2;70;80;92m╰──────────────────────────────────────────────────────────────────────────╯\x1b[0m\n" ++
+            "\n" ++
+            "  \x1b[90mStart here\x1b[0m  \x1b[1m\x1b[38;2;205;212;220mwirescope menu\x1b[0m\n"
         );
     } else {
         try writer.writeAll(
-            "  USAGE\n" ++
-            "    wirescope <command> [subcommand] [target] [options]\n\n" ++
-            "  QUICK START\n" ++
-            "    menu          Launch guided interactive console\n\n" ++
-            "  CORE COMMANDS\n" ++
-            "    diagnose      Run network diagnostics (dns, tcp, tls, interfaces, routes)\n" ++
-            "    audit         Run defensive security audits (tls, http, local)\n" ++
-            "    policy        Evaluate local security rules and exposure policies\n" ++
-            "    baseline      Save and compare baseline state snapshots\n" ++
-            "    discover      Bounded asset discovery within explicit scope\n" ++
-            "    lab           Run reproducible local practice scenarios\n" ++
-            "    history       Query, inspect, compare and prune history\n" ++
-            "    manifest      Verify report integrity manifests\n" ++
-            "    report        Generate, validate and normalize reports\n" ++
-            "    capabilities  Inspect platform capabilities\n" ++
-            "    version       Show version and compiler information\n" ++
-            "    help          Show help for a command\n\n" ++
-            "  GLOBAL OPTIONS\n" ++
-            "    -f, --format <term|json|md>   Output format (default: term)\n" ++
-            "    -t, --timeout <ms>            Operation timeout (default: 5000)\n" ++
-            "    -o, --output <path>           Save output to a file\n" ++
-            "    -y, --non-interactive         Disable confirmation prompts\n" ++
-            "        --no-color                Disable ANSI colors\n" ++
-            "        --dry-run                 Preview the plan, no network probes\n" ++
-            "    -h, --help                    Show help\n" ++
-            "    -v, --version                 Show version\n\n" ++
-            "  EXAMPLES\n" ++
-            "    $ wirescope audit local\n" ++
-            "    $ wirescope diagnose tcp 127.0.0.1:8080 --timeout 2000\n" ++
-            "    $ wirescope diagnose dns example.com --format json\n" ++
-            "    $ wirescope lab run dns_failure\n\n" ++
-            "  ────────────────────────────────────────────────────────────────────────────\n" ++
-            "  Run 'wirescope help <command>' for details on one command\n\n"
+            "  wirescope <command> [subcommand] [target] [options]\n" ++
+            "\n" ++
+            "  ╭─ assess ─────────────────────────────────────────────────────────────────╮\n" ++
+            "  │ diagnose      Run network diagnostics (dns, tcp, tls, interfaces, routes)│\n" ++
+            "  │ audit         Run defensive security audits (tls, http, local)           │\n" ++
+            "  │ policy        Evaluate local security rules and exposure policies        │\n" ++
+            "  │ discover      Bounded asset discovery within explicit scope              │\n" ++
+            "  ╰──────────────────────────────────────────────────────────────────────────╯\n" ++
+            "\n" ++
+            "  ╭─ track ──────────────────────────────────────────────────────────────────╮\n" ++
+            "  │ baseline      Save and compare baseline state snapshots                  │\n" ++
+            "  │ history       Query, inspect, compare and prune history                  │\n" ++
+            "  │ manifest      Verify report integrity manifests                          │\n" ++
+            "  │ report        Generate, validate and normalize reports                   │\n" ++
+            "  ╰──────────────────────────────────────────────────────────────────────────╯\n" ++
+            "\n" ++
+            "  ╭─ practice ───────────────────────────────────────────────────────────────╮\n" ++
+            "  │ lab           Run reproducible local practice scenarios                  │\n" ++
+            "  ╰──────────────────────────────────────────────────────────────────────────╯\n" ++
+            "\n" ++
+            "  ╭─ system ─────────────────────────────────────────────────────────────────╮\n" ++
+            "  │ capabilities  Inspect platform capabilities                              │\n" ++
+            "  │ version       Show version and compiler information                      │\n" ++
+            "  │ help          Show help for a command                                    │\n" ++
+            "  ╰──────────────────────────────────────────────────────────────────────────╯\n" ++
+            "\n" ++
+            "  ╭─ options ────────────────────────────────────────────────────────────────╮\n" ++
+            "  │ -f, --format <term|json|md>   Output format                              │\n" ++
+            "  │ -t, --timeout <ms>            Operation timeout (5000)                   │\n" ++
+            "  │ -o, --output <path>           Save output to a file                      │\n" ++
+            "  │ -y, --non-interactive         Skip confirmation prompts                  │\n" ++
+            "  │     --no-color                Disable ANSI colors                        │\n" ++
+            "  │     --dry-run                 Preview plan, no probes                    │\n" ++
+            "  │ -h, --help                    Show help                                  │\n" ++
+            "  │ -v, --version                 Show version                               │\n" ++
+            "  ╰──────────────────────────────────────────────────────────────────────────╯\n" ++
+            "\n" ++
+            "  Start here  wirescope menu\n"
         );
     }
 }
