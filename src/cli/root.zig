@@ -58,16 +58,20 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
         return ExitCodes.invalid_input;
     };
 
-    // 1. Help dispatch
+    // 1. Help & Hub dispatch
     if (parsed.show_help or parsed.command == .help) {
         if (parsed.subcommand) |sub| {
             printSubcommandHelp(stdout, sub) catch return ExitCodes.operational_failure;
         } else if (parsed.raw_command) |raw| {
-            if (!std.mem.eql(u8, raw, "help")) {
+            if (std.mem.eql(u8, raw, "hub")) {
+                help.printHub(stdout) catch return ExitCodes.operational_failure;
+            } else if (!std.mem.eql(u8, raw, "help")) {
                 printSubcommandHelp(stdout, raw) catch return ExitCodes.operational_failure;
             } else {
                 printRootHelp(stdout) catch return ExitCodes.operational_failure;
             }
+        } else if (raw_args.len <= 1) {
+            help.printHub(stdout) catch return ExitCodes.operational_failure;
         } else {
             printRootHelp(stdout) catch return ExitCodes.operational_failure;
         }
@@ -82,10 +86,34 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
                 \\
             , .{ wirescope.version, @import("builtin").zig_version_string }) catch return ExitCodes.operational_failure;
         } else {
-            stdout.print("WireScope v{s} (Zig {s})\n", .{
-                wirescope.version,
-                @import("builtin").zig_version_string,
-            }) catch return ExitCodes.operational_failure;
+            const use_color = Theme.shouldColorize(parsed.no_color);
+            if (use_color) {
+                stdout.print(
+                    "\n  " ++ Theme.cmd ++ "wirescope" ++ Theme.reset ++ " " ++ Theme.face ++ "{s}" ++ Theme.reset ++ "\n" ++
+                    "  " ++ Theme.gray ++ "compiler   zig {s}" ++ Theme.reset ++ "\n" ++
+                    "  " ++ Theme.gray ++ "platform   {s}-{s}" ++ Theme.reset ++ "\n" ++
+                    "  " ++ Theme.gray ++ "telemetry  none" ++ Theme.reset ++ "\n\n",
+                    .{
+                        wirescope.version,
+                        @import("builtin").zig_version_string,
+                        @tagName(@import("builtin").os.tag),
+                        @tagName(@import("builtin").cpu.arch),
+                    },
+                ) catch return ExitCodes.operational_failure;
+            } else {
+                stdout.print(
+                    "\n  wirescope {s}\n" ++
+                    "  compiler   zig {s}\n" ++
+                    "  platform   {s}-{s}\n" ++
+                    "  telemetry  none\n\n",
+                    .{
+                        wirescope.version,
+                        @import("builtin").zig_version_string,
+                        @tagName(@import("builtin").os.tag),
+                        @tagName(@import("builtin").cpu.arch),
+                    },
+                ) catch return ExitCodes.operational_failure;
+            }
         }
         return ExitCodes.success;
     }
@@ -2056,7 +2084,7 @@ test "cli module integration" {
 }
 
 test "execute help and version" {
-    var out_buf: [4096]u8 = undefined;
+    var out_buf: [32768]u8 = undefined;
     var err_buf: [1024]u8 = undefined;
 
     var out_fbs = std.io.fixedBufferStream(&out_buf);

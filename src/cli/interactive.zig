@@ -11,40 +11,38 @@ pub fn runInteractive(stdout: anytype, stderr: anytype) u8 {
     const stdin = std.io.getStdIn().reader();
 
     while (true) {
-        // Clear or print top header
-        stdout.print("\n", .{}) catch return root.ExitCodes.operational_failure;
         Theme.printBanner(stdout, use_color) catch return root.ExitCodes.operational_failure;
 
         if (use_color) {
             stdout.writeAll(
-                "\x1b[1;96m  WIRESCOPE INTERACTIVE CONSOLE\x1b[0m\n" ++
-                "  \x1b[94m===================================================================\x1b[0m\n" ++
-                "  \x1b[1m[1]\x1b[0m Audit Local Exposure       \x1b[90m(Listeners, interfaces, open ports)\x1b[0m\n" ++
-                "  \x1b[1m[2]\x1b[0m Test TCP Port Check        \x1b[90m(Connect to host:port with bounded timeout)\x1b[0m\n" ++
-                "  \x1b[1m[3]\x1b[0m Diagnose DNS Resolution    \x1b[90m(Query A/AAAA records & check DNS health)\x1b[0m\n" ++
-                "  \x1b[1m[4]\x1b[0m Inspect Interfaces         \x1b[90m(List local adapters, IPv4/IPv6 addresses)\x1b[0m\n" ++
-                "  \x1b[1m[5]\x1b[0m Inspect Routing Table      \x1b[90m(View network routes & default gateway)\x1b[0m\n" ++
-                "  \x1b[1m[6]\x1b[0m Evaluate Security Policy   \x1b[90m(Run offline defense hardening rules)\x1b[0m\n" ++
-                "  \x1b[1m[7]\x1b[0m Run Practice Lab Drill     \x1b[90m(Safe, loopback-confined training scenario)\x1b[0m\n" ++
-                "  \x1b[1m[8]\x1b[0m Capabilities Matrix        \x1b[90m(Check platform features & privileges)\x1b[0m\n" ++
-                "  \x1b[1m[0]\x1b[0m Exit\n" ++
-                "  \x1b[94m===================================================================\x1b[0m\n" ++
-                "  \x1b[1;97mSelect an option [0-8]:\x1b[0m "
+                "  \x1b[1m\x1b[38;2;140;155;170mINTERACTIVE CONSOLE\x1b[0m\n" ++
+                "  \x1b[38;2;70;80;92m────────────────────────────────────────────────────────────────────────────\x1b[0m\n" ++
+                "   \x1b[1m\x1b[38;2;205;212;220m[1]\x1b[0m Audit Local Exposure       \x1b[90mlisteners, interfaces, open ports\x1b[0m\n" ++
+                "   \x1b[1m\x1b[38;2;205;212;220m[2]\x1b[0m Test TCP Port Check        \x1b[90mconnect to host:port with a timeout\x1b[0m\n" ++
+                "   \x1b[1m\x1b[38;2;205;212;220m[3]\x1b[0m Diagnose DNS Resolution    \x1b[90mquery A/AAAA records, check health\x1b[0m\n" ++
+                "   \x1b[1m\x1b[38;2;205;212;220m[4]\x1b[0m Inspect Interfaces         \x1b[90mlocal adapters, IPv4/IPv6 addresses\x1b[0m\n" ++
+                "   \x1b[1m\x1b[38;2;205;212;220m[5]\x1b[0m Inspect Routing Table      \x1b[90mroutes and default gateway\x1b[0m\n" ++
+                "   \x1b[1m\x1b[38;2;205;212;220m[6]\x1b[0m Evaluate Security Policy   \x1b[90moffline hardening rules\x1b[0m\n" ++
+                "   \x1b[1m\x1b[38;2;205;212;220m[7]\x1b[0m Run Practice Lab Drill     \x1b[90mloopback-confined training scenario\x1b[0m\n" ++
+                "   \x1b[1m\x1b[38;2;205;212;220m[8]\x1b[0m Capabilities Matrix        \x1b[90mplatform features and privileges\x1b[0m\n" ++
+                "   \x1b[1m\x1b[38;2;205;212;220m[0]\x1b[0m Exit\n" ++
+                "  \x1b[38;2;70;80;92m────────────────────────────────────────────────────────────────────────────\x1b[0m\n" ++
+                "  \x1b[1m\x1b[38;2;205;212;220mSelect an option [0-8]:\x1b[0m "
             ) catch return root.ExitCodes.operational_failure;
         } else {
             stdout.writeAll(
-                "  WIRESCOPE INTERACTIVE CONSOLE\n" ++
-                "  ===================================================================\n" ++
-                "  [1] Audit Local Exposure       (Listeners, interfaces, open ports)\n" ++
-                "  [2] Test TCP Port Check        (Connect to host:port with bounded timeout)\n" ++
-                "  [3] Diagnose DNS Resolution    (Query A/AAAA records & check DNS health)\n" ++
-                "  [4] Inspect Interfaces         (List local adapters, IPv4/IPv6 addresses)\n" ++
-                "  [5] Inspect Routing Table      (View network routes & default gateway)\n" ++
-                "  [6] Evaluate Security Policy   (Run offline defense hardening rules)\n" ++
-                "  [7] Run Practice Lab Drill     (Safe, loopback-confined training scenario)\n" ++
-                "  [8] Capabilities Matrix        (Check platform features & privileges)\n" ++
-                "  [0] Exit\n" ++
-                "  ===================================================================\n" ++
+                "  INTERACTIVE CONSOLE\n" ++
+                "  ────────────────────────────────────────────────────────────────────────────\n" ++
+                "   [1] Audit Local Exposure       listeners, interfaces, open ports\n" ++
+                "   [2] Test TCP Port Check        connect to host:port with a timeout\n" ++
+                "   [3] Diagnose DNS Resolution    query A/AAAA records, check health\n" ++
+                "   [4] Inspect Interfaces         local adapters, IPv4/IPv6 addresses\n" ++
+                "   [5] Inspect Routing Table      routes and default gateway\n" ++
+                "   [6] Evaluate Security Policy   offline hardening rules\n" ++
+                "   [7] Run Practice Lab Drill     loopback-confined training scenario\n" ++
+                "   [8] Capabilities Matrix        platform features and privileges\n" ++
+                "   [0] Exit\n" ++
+                "  ────────────────────────────────────────────────────────────────────────────\n" ++
                 "  Select an option [0-8]: "
             ) catch return root.ExitCodes.operational_failure;
         }

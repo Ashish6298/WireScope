@@ -40,7 +40,7 @@ pub const Command = enum {
     unknown,
 
     pub fn fromString(str: []const u8) Command {
-        if (std.mem.eql(u8, str, "help")) return .help;
+        if (std.mem.eql(u8, str, "help") or std.mem.eql(u8, str, "hub")) return .help;
         if (std.mem.eql(u8, str, "version")) return .version;
         if (std.mem.eql(u8, str, "menu") or std.mem.eql(u8, str, "interactive")) return .menu;
         if (std.mem.eql(u8, str, "capabilities") or std.mem.eql(u8, str, "capability")) return .capabilities;

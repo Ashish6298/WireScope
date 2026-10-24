@@ -3,6 +3,41 @@ const testing = std.testing;
 const theme = @import("theme.zig");
 const Theme = theme.Theme;
 
+pub fn printHub(writer: anytype) !void {
+    const use_color = Theme.shouldColorize(false);
+    Theme.enableVirtualTerminal();
+
+    try Theme.printBanner(writer, use_color);
+
+    if (use_color) {
+        try writer.writeAll(
+            "  \x1b[1m\x1b[38;2;140;155;170mGET STARTED\x1b[0m\n\n" ++
+            "    \x1b[38;2;70;80;92m$\x1b[0m \x1b[1m\x1b[38;2;205;212;220mwirescope menu\x1b[0m            \x1b[90mguided interactive console\x1b[0m\n" ++
+            "    \x1b[38;2;70;80;92m$\x1b[0m \x1b[1m\x1b[38;2;205;212;220mwirescope audit local\x1b[0m     \x1b[90mcheck what this machine exposes\x1b[0m\n" ++
+            "    \x1b[38;2;70;80;92m$\x1b[0m \x1b[1m\x1b[38;2;205;212;220mwirescope diagnose dns\x1b[0m example.com\n\n" ++
+            "  \x1b[1m\x1b[38;2;140;155;170mWHAT IT DOES\x1b[0m\n\n" ++
+            "    \x1b[38;2;140;155;170m▸\x1b[0m Diagnoses DNS, TCP, TLS, interfaces and routes\n" ++
+            "    \x1b[38;2;140;155;170m▸\x1b[0m Audits local exposure and security policy, read-only\n" ++
+            "    \x1b[38;2;140;155;170m▸\x1b[0m Saves baselines and reports you can verify later\n\n" ++
+            "  \x1b[38;2;70;80;92m────────────────────────────────────────────────────────────────────────────\x1b[0m\n" ++
+            "  \x1b[90mv0.1.0-dev  ·  run \x1b[0m\x1b[1m\x1b[38;2;205;212;220mwirescope help\x1b[0m\x1b[90m for every command\x1b[0m\n\n"
+        );
+    } else {
+        try writer.writeAll(
+            "  GET STARTED\n\n" ++
+            "    $ wirescope menu            guided interactive console\n" ++
+            "    $ wirescope audit local     check what this machine exposes\n" ++
+            "    $ wirescope diagnose dns example.com\n\n" ++
+            "  WHAT IT DOES\n\n" ++
+            "    ▸ Diagnoses DNS, TCP, TLS, interfaces and routes\n" ++
+            "    ▸ Audits local exposure and security policy, read-only\n" ++
+            "    ▸ Saves baselines and reports you can verify later\n\n" ++
+            "  ────────────────────────────────────────────────────────────────────────────\n" ++
+            "  v0.1.0-dev  ·  run wirescope help for every command\n\n"
+        );
+    }
+}
+
 pub fn printRootHelp(writer: anytype) !void {
     const use_color = Theme.shouldColorize(false);
     Theme.enableVirtualTerminal();
@@ -11,81 +46,76 @@ pub fn printRootHelp(writer: anytype) !void {
 
     if (use_color) {
         try writer.writeAll(
-            "\x1b[1;96mUSAGE:\x1b[0m\n" ++
-            "  wirescope <command> [subcommand] [target] [options]\n\n" ++
-            "\x1b[1;93mQUICK START (GUIDED MODE):\x1b[0m\n" ++
-            "  \x1b[1;97mwirescope menu\x1b[0m              Launch guided interactive console\n\n" ++
-            "\x1b[1;96mCORE COMMANDS:\x1b[0m\n" ++
-            "  \x1b[1;97mdiagnose\x1b[0m     Run network diagnostics (dns, tcp, tls, interfaces, routes)\n" ++
-            "  \x1b[1;97maudit\x1b[0m        Run defensive security audits (tls, http, local)\n" ++
-            "  \x1b[1;97mpolicy\x1b[0m       Evaluate local security rules and exposure policies\n" ++
-            "  \x1b[1;97mbaseline\x1b[0m     Manage and compare baseline state snapshots (save, diff)\n" ++
-            "  \x1b[1;97mdiscover\x1b[0m     Perform bounded asset discovery within explicit scope\n" ++
-            "  \x1b[1;97mlab\x1b[0m          Execute reproducible local practice lab scenarios\n" ++
-            "  \x1b[1;97mhistory\x1b[0m      Query, inspect, compare, and prune assessment history\n" ++
-            "  \x1b[1;97mmanifest\x1b[0m     Verify report artifact integrity manifests and detect tampering\n" ++
-            "  \x1b[1;97mreport\x1b[0m       Generate, validate, and normalize versioned reports\n" ++
-            "  \x1b[1;97mcapabilities\x1b[0m Inspect platform capabilities and supported features\n" ++
-            "  \x1b[1;97mversion\x1b[0m      Display WireScope version and compiler information\n" ++
-            "  \x1b[1;97mhelp\x1b[0m         Display help information for a command\n\n" ++
-            "\x1b[1;96mGLOBAL OPTIONS:\x1b[0m\n" ++
-            "  \x1b[94m-f, --format <term|json|md>\x1b[0m  Output format (default: terminal)\n" ++
-            "  \x1b[94m-t, --timeout <ms>\x1b[0m           Operation timeout in milliseconds (default: 5000)\n" ++
-            "  \x1b[94m-o, --output <path>\x1b[0m          Save output to explicit file path\n" ++
-            "  \x1b[94m-y, --non-interactive\x1b[0m        Disable interactive confirmation prompts\n" ++
-            "  \x1b[94m    --no-color\x1b[0m               Disable ANSI color output\n" ++
-            "  \x1b[94m    --dry-run\x1b[0m                Preview assessment plan without network probes\n" ++
-            "  \x1b[94m-h, --help\x1b[0m                   Show help for command\n" ++
-            "  \x1b[94m-v, --version\x1b[0m                Show version information\n\n" ++
-            "\x1b[1;96mEXAMPLES:\x1b[0m\n" ++
-            "  \x1b[92m$\x1b[0m wirescope menu\n" ++
-            "  \x1b[92m$\x1b[0m wirescope audit local\n" ++
-            "  \x1b[92m$\x1b[0m wirescope diagnose tcp 127.0.0.1:8080 --timeout 2000\n" ++
-            "  \x1b[92m$\x1b[0m wirescope diagnose dns example.com --format json\n" ++
-            "  \x1b[92m$\x1b[0m wirescope policy check\n" ++
-            "  \x1b[92m$\x1b[0m wirescope lab run dns_failure\n\n"
+            "  \x1b[1m\x1b[38;2;140;155;170mUSAGE\x1b[0m\n" ++
+            "    wirescope \x1b[38;2;140;155;170m<command>\x1b[0m [subcommand] [target] [options]\n\n" ++
+            "  \x1b[1m\x1b[38;2;140;155;170mQUICK START\x1b[0m\n" ++
+            "    \x1b[1m\x1b[38;2;205;212;220mmenu          \x1b[0mLaunch guided interactive console\n\n" ++
+            "  \x1b[1m\x1b[38;2;140;155;170mCORE COMMANDS\x1b[0m\n" ++
+            "    \x1b[1m\x1b[38;2;205;212;220mdiagnose      \x1b[0mRun network diagnostics (dns, tcp, tls, interfaces, routes)\n" ++
+            "    \x1b[1m\x1b[38;2;205;212;220maudit         \x1b[0mRun defensive security audits (tls, http, local)\n" ++
+            "    \x1b[1m\x1b[38;2;205;212;220mpolicy        \x1b[0mEvaluate local security rules and exposure policies\n" ++
+            "    \x1b[1m\x1b[38;2;205;212;220mbaseline      \x1b[0mSave and compare baseline state snapshots\n" ++
+            "    \x1b[1m\x1b[38;2;205;212;220mdiscover      \x1b[0mBounded asset discovery within explicit scope\n" ++
+            "    \x1b[1m\x1b[38;2;205;212;220mlab           \x1b[0mRun reproducible local practice scenarios\n" ++
+            "    \x1b[1m\x1b[38;2;205;212;220mhistory       \x1b[0mQuery, inspect, compare and prune history\n" ++
+            "    \x1b[1m\x1b[38;2;205;212;220mmanifest      \x1b[0mVerify report integrity manifests\n" ++
+            "    \x1b[1m\x1b[38;2;205;212;220mreport        \x1b[0mGenerate, validate and normalize reports\n" ++
+            "    \x1b[1m\x1b[38;2;205;212;220mcapabilities  \x1b[0mInspect platform capabilities\n" ++
+            "    \x1b[1m\x1b[38;2;205;212;220mversion       \x1b[0mShow version and compiler information\n" ++
+            "    \x1b[1m\x1b[38;2;205;212;220mhelp          \x1b[0mShow help for a command\n\n" ++
+            "  \x1b[1m\x1b[38;2;140;155;170mGLOBAL OPTIONS\x1b[0m\n" ++
+            "    \x1b[38;2;140;155;170m-f, --format <term|json|md>   \x1b[0m\x1b[90mOutput format (default: term)\x1b[0m\n" ++
+            "    \x1b[38;2;140;155;170m-t, --timeout <ms>            \x1b[0m\x1b[90mOperation timeout (default: 5000)\x1b[0m\n" ++
+            "    \x1b[38;2;140;155;170m-o, --output <path>           \x1b[0m\x1b[90mSave output to a file\x1b[0m\n" ++
+            "    \x1b[38;2;140;155;170m-y, --non-interactive         \x1b[0m\x1b[90mDisable confirmation prompts\x1b[0m\n" ++
+            "    \x1b[38;2;140;155;170m    --no-color                \x1b[0m\x1b[90mDisable ANSI colors\x1b[0m\n" ++
+            "    \x1b[38;2;140;155;170m    --dry-run                 \x1b[0m\x1b[90mPreview the plan, no network probes\x1b[0m\n" ++
+            "    \x1b[38;2;140;155;170m-h, --help                    \x1b[0m\x1b[90mShow help\x1b[0m\n" ++
+            "    \x1b[38;2;140;155;170m-v, --version                 \x1b[0m\x1b[90mShow version\x1b[0m\n\n" ++
+            "  \x1b[1m\x1b[38;2;140;155;170mEXAMPLES\x1b[0m\n" ++
+            "    \x1b[38;2;70;80;92m$\x1b[0m wirescope audit local\n" ++
+            "    \x1b[38;2;70;80;92m$\x1b[0m wirescope diagnose tcp 127.0.0.1:8080 --timeout 2000\n" ++
+            "    \x1b[38;2;70;80;92m$\x1b[0m wirescope diagnose dns example.com --format json\n" ++
+            "    \x1b[38;2;70;80;92m$\x1b[0m wirescope lab run dns_failure\n\n" ++
+            "  \x1b[38;2;70;80;92m────────────────────────────────────────────────────────────────────────────\x1b[0m\n" ++
+            "  \x1b[90mRun 'wirescope help <command>' for details on one command\x1b[0m\n\n"
         );
     } else {
-        try writer.print(
-            \\Usage:
-            \\  wirescope <command> [subcommand] [target] [options]
-            \\
-            \\Quick Start (Guided Mode):
-            \\  wirescope menu              Launch guided interactive console
-            \\
-            \\Commands:
-            \\  diagnose      Run network diagnostics (dns, tcp, tls, interfaces, routes)
-            \\  audit         Run defensive security audits (tls, http, local)
-            \\  policy        Evaluate local security rules and exposure policies
-            \\  baseline      Manage and compare baseline state snapshots
-            \\  discover      Perform bounded asset discovery within explicit scope
-            \\  lab           Execute reproducible local practice lab scenarios
-            \\  history       Query, inspect, compare, and prune assessment history
-            \\  manifest      Verify report artifact integrity manifests and detect tampering
-            \\  report        Generate, validate, and normalize versioned reports
-            \\  capabilities  Inspect platform capabilities and supported features
-            \\  version       Display WireScope version and compiler information
-            \\  help          Display help information for a command
-            \\
-            \\Global Options:
-            \\  -f, --format <term|json|md>  Output format (default: terminal)
-            \\  -t, --timeout <ms>           Operation timeout in milliseconds (default: 5000)
-            \\  -o, --output <path>          Save output to explicit file path
-            \\  -y, --non-interactive        Disable interactive confirmation prompts
-            \\      --no-color               Disable ANSI color output
-            \\      --dry-run                Preview assessment plan without network probes
-            \\  -h, --help                   Show help for command
-            \\  -v, --version                Show version information
-            \\
-            \\Examples:
-            \\  $ wirescope menu
-            \\  $ wirescope audit local
-            \\  $ wirescope diagnose tcp 127.0.0.1:8080 --timeout 2000
-            \\  $ wirescope diagnose dns example.com --format json
-            \\  $ wirescope policy check
-            \\  $ wirescope lab run dns_failure
-            \\
-        , .{});
+        try writer.writeAll(
+            "  USAGE\n" ++
+            "    wirescope <command> [subcommand] [target] [options]\n\n" ++
+            "  QUICK START\n" ++
+            "    menu          Launch guided interactive console\n\n" ++
+            "  CORE COMMANDS\n" ++
+            "    diagnose      Run network diagnostics (dns, tcp, tls, interfaces, routes)\n" ++
+            "    audit         Run defensive security audits (tls, http, local)\n" ++
+            "    policy        Evaluate local security rules and exposure policies\n" ++
+            "    baseline      Save and compare baseline state snapshots\n" ++
+            "    discover      Bounded asset discovery within explicit scope\n" ++
+            "    lab           Run reproducible local practice scenarios\n" ++
+            "    history       Query, inspect, compare and prune history\n" ++
+            "    manifest      Verify report integrity manifests\n" ++
+            "    report        Generate, validate and normalize reports\n" ++
+            "    capabilities  Inspect platform capabilities\n" ++
+            "    version       Show version and compiler information\n" ++
+            "    help          Show help for a command\n\n" ++
+            "  GLOBAL OPTIONS\n" ++
+            "    -f, --format <term|json|md>   Output format (default: term)\n" ++
+            "    -t, --timeout <ms>            Operation timeout (default: 5000)\n" ++
+            "    -o, --output <path>           Save output to a file\n" ++
+            "    -y, --non-interactive         Disable confirmation prompts\n" ++
+            "        --no-color                Disable ANSI colors\n" ++
+            "        --dry-run                 Preview the plan, no network probes\n" ++
+            "    -h, --help                    Show help\n" ++
+            "    -v, --version                 Show version\n\n" ++
+            "  EXAMPLES\n" ++
+            "    $ wirescope audit local\n" ++
+            "    $ wirescope diagnose tcp 127.0.0.1:8080 --timeout 2000\n" ++
+            "    $ wirescope diagnose dns example.com --format json\n" ++
+            "    $ wirescope lab run dns_failure\n\n" ++
+            "  ────────────────────────────────────────────────────────────────────────────\n" ++
+            "  Run 'wirescope help <command>' for details on one command\n\n"
+        );
     }
 }
 
@@ -322,9 +352,13 @@ pub fn printSubcommandHelp(writer: anytype, cmd: []const u8) !void {
 }
 
 test "help output prints without error" {
-    var buf: [4096]u8 = undefined;
+    var buf: [32768]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     try printRootHelp(fbs.writer());
+    try testing.expect(fbs.getWritten().len > 0);
+
+    fbs.reset();
+    try printHub(fbs.writer());
     try testing.expect(fbs.getWritten().len > 0);
 
     fbs.reset();
