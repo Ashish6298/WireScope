@@ -25,5 +25,5 @@ test "wirescope library root exports all modules" {
     _ = lab;
     _ = recon;
     _ = audit;
-    try testing.expectEqualStrings("0.1.0-dev", version);
+    try testing.expectEqualStrings("1.0.0", version);
 }

@@ -46,10 +46,10 @@ pub const hardening = @import("hardening.zig");
 pub const benchmarks = @import("benchmarks.zig");
 
 pub const Version = struct {
-    pub const major: u32 = 0;
-    pub const minor: u32 = 1;
+    pub const major: u32 = 1;
+    pub const minor: u32 = 0;
     pub const patch: u32 = 0;
-    pub const string: []const u8 = "0.1.0-dev";
+    pub const string: []const u8 = "1.0.0";
 };
 
 test "core root re-exports compile and test cleanly" {
@@ -63,7 +63,7 @@ test "core root re-exports compile and test cleanly" {
     _ = hardening;
     _ = benchmarks;
 
-    try testing.expectEqualStrings("0.1.0-dev", Version.string);
+    try testing.expectEqualStrings("1.0.0", Version.string);
     try testing.expect(OutcomeCategory.success.isSuccess());
     try testing.expect(!OutcomeCategory.unsupported_capability.isSuccess());
 }

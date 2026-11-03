@@ -20,7 +20,7 @@ pub fn printHub(writer: anytype) !void {
             "    \x1b[38;2;140;155;170m▸\x1b[0m Audits local exposure and security policy, read-only\n" ++
             "    \x1b[38;2;140;155;170m▸\x1b[0m Saves baselines and reports you can verify later\n\n" ++
             "  \x1b[38;2;70;80;92m────────────────────────────────────────────────────────────────────────────\x1b[0m\n" ++
-            "  \x1b[90mv0.1.0-dev  ·  run \x1b[0m\x1b[1m\x1b[38;2;205;212;220mwirescope help\x1b[0m\x1b[90m for every command\x1b[0m\n\n"
+            "  \x1b[90mv1.0.0  ·  run \x1b[0m\x1b[1m\x1b[38;2;205;212;220mwirescope help\x1b[0m\x1b[90m for every command\x1b[0m\n\n"
         );
     } else {
         try writer.writeAll(
@@ -33,7 +33,7 @@ pub fn printHub(writer: anytype) !void {
             "    ▸ Audits local exposure and security policy, read-only\n" ++
             "    ▸ Saves baselines and reports you can verify later\n\n" ++
             "  ────────────────────────────────────────────────────────────────────────────\n" ++
-            "  v0.1.0-dev  ·  run wirescope help for every command\n\n"
+            "  v1.0.0  ·  run wirescope help for every command\n\n"
         );
     }
 }

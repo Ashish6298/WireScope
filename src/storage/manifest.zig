@@ -3,7 +3,7 @@ const testing = std.testing;
 
 pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
 pub const CURRENT_TOOL_NAME: []const u8 = "wirescope";
-pub const CURRENT_TOOL_VERSION: []const u8 = "0.1.0-dev";
+pub const CURRENT_TOOL_VERSION: []const u8 = "1.0.0";
 pub const DEFAULT_HASH_ALGO: []const u8 = "sha256";
 
 /// Prominent security notice explaining cryptographic limits of local hashes

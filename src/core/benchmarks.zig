@@ -113,7 +113,7 @@ pub fn benchmarkJsonValidation(allocator: std.mem.Allocator, iterations: usize) 
         \\{
         \\  "schema_version": 1,
         \\  "report_type": "wirescope_assessment_report",
-        \\  "tool": { "name": "wirescope", "version": "0.1.0-dev" },
+        \\  "tool": { "name": "wirescope", "version": "1.0.0" },
         \\  "metadata": {
         \\    "assessment_id": "asm-101",
         \\    "profile_id": "local-security-audit",

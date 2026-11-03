@@ -5,7 +5,7 @@ pub const REPORT_SCHEMA_VERSION: u32 = 1;
 pub const REPORT_SCHEMA_ID: []const u8 = "https://wirescope.dev/schemas/assessment-report-v1.json";
 pub const REPORT_DOCUMENT_TYPE: []const u8 = "wirescope_assessment_report";
 pub const TOOL_NAME: []const u8 = "wirescope";
-pub const TOOL_VERSION: []const u8 = "0.1.0-dev";
+pub const TOOL_VERSION: []const u8 = "1.0.0";
 
 pub const SchemaValidationError = error{
     InvalidJson,
@@ -153,7 +153,7 @@ test "schema: validates compliant versioned report json" {
         \\{
         \\  "schema_version": 1,
         \\  "report_type": "wirescope_assessment_report",
-        \\  "tool": { "name": "wirescope", "version": "0.1.0-dev" },
+        \\  "tool": { "name": "wirescope", "version": "1.0.0" },
         \\  "metadata": {
         \\    "assessment_id": "asm-101",
         \\    "profile_id": "local-security-audit",
