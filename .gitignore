@@ -2,6 +2,7 @@
 wirescope_project.txt
 wirescope_phase.txt
 report/
+reports/
 
 # Zig build outputs and compiler cache
 zig-cache/
