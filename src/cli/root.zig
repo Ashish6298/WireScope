@@ -90,10 +90,10 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
             if (use_color) {
                 stdout.print(
                     "\n  " ++ Theme.edge ++ "\xe2\x95\xad\xe2\x94\x80 " ++ Theme.head ++ "wirescope" ++ Theme.reset ++ " " ++ Theme.cmd ++ "v{s}" ++ Theme.reset ++ " " ++ Theme.edge ++ "───────────────────────────────────────────────────────\xe2\x95\xae" ++ Theme.reset ++ "\n" ++
-                    "  " ++ Theme.edge ++ "\xe2\x94\x82" ++ Theme.reset ++ "  " ++ Theme.face ++ "compiler" ++ Theme.reset ++ "    " ++ Theme.light ++ "zig {s}" ++ Theme.reset ++ "                                                  " ++ Theme.edge ++ "\xe2\x94\x82" ++ Theme.reset ++ "\n" ++
-                    "  " ++ Theme.edge ++ "\xe2\x94\x82" ++ Theme.reset ++ "  " ++ Theme.face ++ "platform" ++ Theme.reset ++ "    " ++ Theme.light ++ "{s}-{s}" ++ Theme.reset ++ "                                              " ++ Theme.edge ++ "\xe2\x94\x82" ++ Theme.reset ++ "\n" ++
-                    "  " ++ Theme.edge ++ "\xe2\x94\x82" ++ Theme.reset ++ "  " ++ Theme.face ++ "telemetry" ++ Theme.reset ++ "   " ++ Theme.ok ++ "none (zero network tracking)" ++ Theme.reset ++ "                                " ++ Theme.edge ++ "\xe2\x94\x82" ++ Theme.reset ++ "\n" ++
-                    "  " ++ Theme.edge ++ "\xe2\x95\xb0──────────────────────────────────────────────────────────────────────────\xe2\x95\xaf" ++ Theme.reset ++ "\n\n",
+                        "  " ++ Theme.edge ++ "\xe2\x94\x82" ++ Theme.reset ++ "  " ++ Theme.face ++ "compiler" ++ Theme.reset ++ "    " ++ Theme.light ++ "zig {s}" ++ Theme.reset ++ "                                                  " ++ Theme.edge ++ "\xe2\x94\x82" ++ Theme.reset ++ "\n" ++
+                        "  " ++ Theme.edge ++ "\xe2\x94\x82" ++ Theme.reset ++ "  " ++ Theme.face ++ "platform" ++ Theme.reset ++ "    " ++ Theme.light ++ "{s}-{s}" ++ Theme.reset ++ "                                              " ++ Theme.edge ++ "\xe2\x94\x82" ++ Theme.reset ++ "\n" ++
+                        "  " ++ Theme.edge ++ "\xe2\x94\x82" ++ Theme.reset ++ "  " ++ Theme.face ++ "telemetry" ++ Theme.reset ++ "   " ++ Theme.ok ++ "none (zero network tracking)" ++ Theme.reset ++ "                                " ++ Theme.edge ++ "\xe2\x94\x82" ++ Theme.reset ++ "\n" ++
+                        "  " ++ Theme.edge ++ "\xe2\x95\xb0──────────────────────────────────────────────────────────────────────────\xe2\x95\xaf" ++ Theme.reset ++ "\n\n",
                     .{
                         wirescope.version,
                         @import("builtin").zig_version_string,
@@ -104,10 +104,10 @@ pub fn execute(raw_args: []const []const u8, stdout: anytype, stderr: anytype) u
             } else {
                 stdout.print(
                     "\n  \xe2\x95\xad\xe2\x94\x80 wirescope v{s} ───────────────────────────────────────────────────────\xe2\x95\xae\n" ++
-                    "  \xe2\x94\x82  compiler    zig {s}                                                  \xe2\x94\x82\n" ++
-                    "  \xe2\x94\x82  platform    {s}-{s}                                              \xe2\x94\x82\n" ++
-                    "  \xe2\x94\x82  telemetry   none (zero network tracking)                                \xe2\x94\x82\n" ++
-                    "  \xe2\x95\xb0──────────────────────────────────────────────────────────────────────────\xe2\x95\xaf\n\n",
+                        "  \xe2\x94\x82  compiler    zig {s}                                                  \xe2\x94\x82\n" ++
+                        "  \xe2\x94\x82  platform    {s}-{s}                                              \xe2\x94\x82\n" ++
+                        "  \xe2\x94\x82  telemetry   none (zero network tracking)                                \xe2\x94\x82\n" ++
+                        "  \xe2\x95\xb0──────────────────────────────────────────────────────────────────────────\xe2\x95\xaf\n\n",
                     .{
                         wirescope.version,
                         @import("builtin").zig_version_string,

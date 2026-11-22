@@ -10,8 +10,7 @@ pub fn printHub(writer: anytype) !void {
     try Theme.printBanner(writer, use_color);
 
     if (use_color) {
-        try writer.writeAll(
-            "  \x1b[1m\x1b[38;2;140;155;170mGET STARTED\x1b[0m\n\n" ++
+        try writer.writeAll("  \x1b[1m\x1b[38;2;140;155;170mGET STARTED\x1b[0m\n\n" ++
             "    \x1b[38;2;70;80;92m$\x1b[0m \x1b[1m\x1b[38;2;205;212;220mwirescope menu\x1b[0m            \x1b[90mguided interactive console\x1b[0m\n" ++
             "    \x1b[38;2;70;80;92m$\x1b[0m \x1b[1m\x1b[38;2;205;212;220mwirescope audit local\x1b[0m     \x1b[90mcheck what this machine exposes\x1b[0m\n" ++
             "    \x1b[38;2;70;80;92m$\x1b[0m \x1b[1m\x1b[38;2;205;212;220mwirescope diagnose dns\x1b[0m example.com\n\n" ++
@@ -20,11 +19,9 @@ pub fn printHub(writer: anytype) !void {
             "    \x1b[38;2;140;155;170m▸\x1b[0m Audits local exposure and security policy, read-only\n" ++
             "    \x1b[38;2;140;155;170m▸\x1b[0m Saves baselines and reports you can verify later\n\n" ++
             "  \x1b[38;2;70;80;92m────────────────────────────────────────────────────────────────────────────\x1b[0m\n" ++
-            "  \x1b[90mv1.0.0  ·  run \x1b[0m\x1b[1m\x1b[38;2;205;212;220mwirescope help\x1b[0m\x1b[90m for every command\x1b[0m\n\n"
-        );
+            "  \x1b[90mv1.0.0  ·  run \x1b[0m\x1b[1m\x1b[38;2;205;212;220mwirescope help\x1b[0m\x1b[90m for every command\x1b[0m\n\n");
     } else {
-        try writer.writeAll(
-            "  GET STARTED\n\n" ++
+        try writer.writeAll("  GET STARTED\n\n" ++
             "    $ wirescope menu            guided interactive console\n" ++
             "    $ wirescope audit local     check what this machine exposes\n" ++
             "    $ wirescope diagnose dns example.com\n\n" ++
@@ -33,8 +30,7 @@ pub fn printHub(writer: anytype) !void {
             "    ▸ Audits local exposure and security policy, read-only\n" ++
             "    ▸ Saves baselines and reports you can verify later\n\n" ++
             "  ────────────────────────────────────────────────────────────────────────────\n" ++
-            "  v1.0.0  ·  run wirescope help for every command\n\n"
-        );
+            "  v1.0.0  ·  run wirescope help for every command\n\n");
     }
 }
 
@@ -45,8 +41,7 @@ pub fn printRootHelp(writer: anytype) !void {
     try Theme.printBanner(writer, use_color);
 
     if (use_color) {
-        try writer.writeAll(
-            "  \x1b[1m\x1b[38;2;205;212;220mwirescope\x1b[0m \x1b[38;2;140;155;170m<command>\x1b[0m \x1b[90m[subcommand] [target] [options]\x1b[0m\n" ++
+        try writer.writeAll("  \x1b[1m\x1b[38;2;205;212;220mwirescope\x1b[0m \x1b[38;2;140;155;170m<command>\x1b[0m \x1b[90m[subcommand] [target] [options]\x1b[0m\n" ++
             "\n" ++
             "  \x1b[38;2;70;80;92m╭─\x1b[0m \x1b[1m\x1b[38;2;140;155;170massess\x1b[0m \x1b[38;2;70;80;92m─────────────────────────────────────────────────────────────────╮\x1b[0m\n" ++
             "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[1m\x1b[38;2;205;212;220mdiagnose      \x1b[0m\x1b[90mRun network diagnostics (dns, tcp, tls, interfaces, routes)\x1b[0m\x1b[38;2;70;80;92m│\x1b[0m\n" ++
@@ -83,11 +78,9 @@ pub fn printRootHelp(writer: anytype) !void {
             "  \x1b[38;2;70;80;92m│\x1b[0m \x1b[38;2;140;155;170m-v, --version                 \x1b[0m\x1b[90mShow version\x1b[0m                               \x1b[38;2;70;80;92m│\x1b[0m\n" ++
             "  \x1b[38;2;70;80;92m╰──────────────────────────────────────────────────────────────────────────╯\x1b[0m\n" ++
             "\n" ++
-            "  \x1b[90mStart here\x1b[0m  \x1b[1m\x1b[38;2;205;212;220mwirescope menu\x1b[0m\n"
-        );
+            "  \x1b[90mStart here\x1b[0m  \x1b[1m\x1b[38;2;205;212;220mwirescope menu\x1b[0m\n");
     } else {
-        try writer.writeAll(
-            "  wirescope <command> [subcommand] [target] [options]\n" ++
+        try writer.writeAll("  wirescope <command> [subcommand] [target] [options]\n" ++
             "\n" ++
             "  ╭─ assess ─────────────────────────────────────────────────────────────────╮\n" ++
             "  │ diagnose      Run network diagnostics (dns, tcp, tls, interfaces, routes)│\n" ++
@@ -124,8 +117,7 @@ pub fn printRootHelp(writer: anytype) !void {
             "  │ -v, --version                 Show version                               │\n" ++
             "  ╰──────────────────────────────────────────────────────────────────────────╯\n" ++
             "\n" ++
-            "  Start here  wirescope menu\n"
-        );
+            "  Start here  wirescope menu\n");
     }
 }
 
