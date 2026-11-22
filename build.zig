@@ -4,11 +4,9 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // 1. Reusable Zig library module
-    const lib_mod = b.createModule(.{
+    // 1. Reusable Zig library module (exported for package consumers)
+    const lib_mod = b.addModule("wirescope", .{
         .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
     });
 
     const lib = b.addStaticLibrary(.{
