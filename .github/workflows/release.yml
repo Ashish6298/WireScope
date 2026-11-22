@@ -62,6 +62,25 @@ jobs:
         with:
           version: 0.13.0
 
+      - name: Patch macOS SDK libSystem.tbd for Zig 0.13.0
+        if: runner.os == 'macOS'
+        run: |
+          ZIG_BIN="$(which zig)"
+          ZIG_DIR="$(dirname "$ZIG_BIN")"
+          ZIG_TBD="$(find "$ZIG_DIR" -name "libSystem.tbd" 2>/dev/null | head -n 1)"
+          if [ -z "$ZIG_TBD" ]; then
+            ZIG_TBD="$(find /Users/runner -name "libSystem.tbd" 2>/dev/null | grep "/darwin/" | head -n 1)"
+          fi
+          echo "Found Zig libSystem.tbd at: $ZIG_TBD"
+          for sdk in $(xcrun --sdk macosx --show-sdk-path 2>/dev/null) /Library/Developer/CommandLineTools/SDKs/MacOSX*.sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX*.sdk; do
+            if [ -d "$sdk/usr/lib" ] && [ -n "$ZIG_TBD" ] && [ -f "$ZIG_TBD" ]; then
+              echo "Patching $sdk/usr/lib/libSystem.tbd"
+              sudo cp -f "$ZIG_TBD" "$sdk/usr/lib/libSystem.tbd"
+              sudo cp -f "$ZIG_TBD" "$sdk/usr/lib/libSystem.B.tbd"
+            fi
+          done
+          rm -rf ~/.cache/zig .zig-cache zig-cache
+
       - name: Determine Version Tag
         id: vars
         shell: bash
