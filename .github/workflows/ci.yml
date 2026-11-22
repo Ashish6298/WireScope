@@ -40,17 +40,20 @@ jobs:
       - name: Setup macOS Developer Tools
         if: runner.os == 'macOS'
         run: |
-          if [ -d "/Applications/Xcode_15.4.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_15.4.app
-          elif [ -d "/Applications/Xcode.app" ]; then
-            sudo xcode-select -s /Applications/Xcode.app
+          if [ -d "/Library/Developer/CommandLineTools" ]; then
+            sudo xcode-select -s /Library/Developer/CommandLineTools
+          elif [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           fi
-          sudo xcodebuild -license accept 2>/dev/null || true
+          DEV_DIR=$(xcode-select -p 2>/dev/null || echo "")
+          if [ -n "$DEV_DIR" ]; then
+            echo "DEVELOPER_DIR=${DEV_DIR}" >> $GITHUB_ENV
+          fi
           SDK_PATH=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || xcrun --show-sdk-path 2>/dev/null || echo "")
           if [ -n "$SDK_PATH" ]; then
             echo "SDKROOT=${SDK_PATH}" >> $GITHUB_ENV
           fi
-          rm -rf ~/.cache/zig .zig-cache
+          rm -rf ~/.cache/zig .zig-cache zig-cache
 
       - name: Setup Zig Compiler
         uses: mlugg/setup-zig@v1
