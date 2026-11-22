@@ -87,7 +87,7 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           if [ -z "$TAG" ] || [[ "$TAG" == "main" ]] || [[ "$TAG" == "ashish" ]]; then
-            TAG="${{ github.event.inputs.tag_name || 'v0.1.0-rc1' }}"
+            TAG="${{ github.event.inputs.tag_name || 'v1.0.0' }}"
           fi
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
@@ -161,9 +161,18 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           if [ -z "$TAG" ] || [[ "$TAG" == "main" ]] || [[ "$TAG" == "ashish" ]]; then
-            TAG="${{ github.event.inputs.tag_name || 'v0.1.0-rc1' }}"
+            TAG="${{ github.event.inputs.tag_name || 'v1.0.0' }}"
           fi
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          NOTES="docs/release_notes_${TAG}.md"
+          if [ ! -f "$NOTES" ]; then
+            if [ -f "docs/release_notes_v1.0.0.md" ]; then
+              NOTES="docs/release_notes_v1.0.0.md"
+            else
+              NOTES="docs/release_notes_v0.1.0_rc1.md"
+            fi
+          fi
+          echo "notes_file=${NOTES}" >> $GITHUB_OUTPUT
 
       - name: Download Built Artifacts
         uses: actions/download-artifact@v4
@@ -182,7 +191,7 @@ jobs:
         with:
           tag_name: ${{ steps.vars.outputs.tag }}
           name: WireScope ${{ steps.vars.outputs.tag }}
-          body_path: docs/release_notes_v0.1.0_rc1.md
+          body_path: ${{ steps.vars.outputs.notes_file }}
           draft: false
           prerelease: ${{ contains(steps.vars.outputs.tag, '-rc') }}
           files: |
