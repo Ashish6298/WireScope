@@ -726,6 +726,88 @@ pub const MockHttpAuditConnector = struct {
     }
 };
 
+/// Real network HTTP/HTTPS security audit connector executing live queries against targets
+pub const RealHttpAuditConnector = struct {
+    pub fn connector(self: *RealHttpAuditConnector) HttpAuditConnector {
+        return .{
+            .ptr = self,
+            .vtable = &.{
+                .execute = executeRealImpl,
+            },
+        };
+    }
+
+    fn executeRealImpl(
+        _: *anyopaque,
+        allocator: std.mem.Allocator,
+        target_url: []const u8,
+        config: HttpAuditConfig,
+        cancel: ?*const CancellationToken,
+        maybe_profile: ?*const AssessmentProfile,
+    ) anyerror!HttpAuditResult {
+        const https_config = probes.HttpsConfig{
+            .timeout_ms = config.timeout_ms,
+            .max_redirects = config.max_redirects,
+            .max_response_bytes = config.max_response_bytes,
+            .allow_redirect_scope_expansion = config.allow_redirect_scope_expansion,
+            .verify_certificates = config.verify_certificates,
+            .insecure_skip_verify = config.insecure_skip_verify,
+            .custom_ca_path = config.custom_ca_path,
+        };
+
+        var real_https = probes.RealHttpsConnector{};
+        var probe_res = try real_https.connector().probe(
+            allocator,
+            target_url,
+            https_config,
+            cancel,
+            maybe_profile,
+            std.time.timestamp(),
+        );
+        defer probe_res.deinit(allocator);
+
+        var raw_resp_buf = std.ArrayList(u8).init(allocator);
+        defer raw_resp_buf.deinit();
+
+        try raw_resp_buf.writer().print("{s}\r\n", .{probe_res.status_line});
+        if (probe_res.hsts_header) |h| try raw_resp_buf.writer().print("Strict-Transport-Security: {s}\r\n", .{h});
+        if (probe_res.csp_header) |c| try raw_resp_buf.writer().print("Content-Security-Policy: {s}\r\n", .{c});
+        if (probe_res.content_type_options) |cto| try raw_resp_buf.writer().print("X-Content-Type-Options: {s}\r\n", .{cto});
+        if (probe_res.redirect_target) |loc| try raw_resp_buf.writer().print("Location: {s}\r\n", .{loc});
+        try raw_resp_buf.writer().print("Content-Length: {d}\r\n\r\n", .{probe_res.response_size_bytes});
+
+        var parsed_url = try parseUrl(allocator, probe_res.effective_url);
+        defer parsed_url.deinit(allocator);
+
+        var audit_res = try evaluateHttpSecurityRules(
+            allocator,
+            parsed_url,
+            raw_resp_buf.items,
+            config,
+            maybe_profile,
+            (probe_res.failure_category == .redirect_out_of_scope),
+            (probe_res.failure_category == .redirect_limit_exceeded or probe_res.failure_category == .redirect_loop),
+        );
+
+        if (probe_res.redirect_chain.len > 0) {
+            var chain_copy = try allocator.alloc(probes.RedirectHop, probe_res.redirect_chain.len);
+            for (probe_res.redirect_chain, 0..) |hop, i| {
+                chain_copy[i] = .{
+                    .url = try allocator.dupe(u8, hop.url),
+                    .status_code = hop.status_code,
+                    .elapsed_ns = hop.elapsed_ns,
+                };
+            }
+            if (audit_res.redirect_chain.len > 0) allocator.free(audit_res.redirect_chain);
+            audit_res.redirect_chain = chain_copy;
+            audit_res.redirect_count = probe_res.redirect_count;
+        }
+
+        audit_res.elapsed_ns = probe_res.elapsed_ns;
+        return audit_res;
+    }
+};
+
 // -------------------------------------------------------------------------
 // DEFENSIVE AUDITING EVALUATION ENGINE
 // -------------------------------------------------------------------------

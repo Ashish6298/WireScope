@@ -634,12 +634,38 @@ pub const RealServiceProber = struct {
         }
     }
 
+    fn hasDataReady(sock: std.posix.socket_t, timeout_ms: u32) bool {
+        if (comptime @import("builtin").os.tag == .windows) {
+            var read_fds = std.os.windows.ws2_32.fd_set{
+                .fd_count = 1,
+                .fd_array = undefined,
+            };
+            read_fds.fd_array[0] = sock;
+            const tv = std.os.windows.ws2_32.timeval{
+                .tv_sec = @intCast(@divTrunc(timeout_ms, 1000)),
+                .tv_usec = @intCast(@mod(timeout_ms, 1000) * 1000),
+            };
+            const rc = std.os.windows.ws2_32.select(0, &read_fds, null, null, &tv);
+            return rc > 0;
+        } else {
+            var pfd = [1]std.posix.pollfd{
+                .{
+                    .fd = sock,
+                    .events = std.posix.POLL.IN,
+                    .revents = 0,
+                },
+            };
+            const rc = std.posix.poll(&pfd, @intCast(timeout_ms)) catch 0;
+            return rc > 0;
+        }
+    }
+
     /// Performs safe, non-destructive protocol checks on an open port
     fn identifyOpenService(
         allocator: std.mem.Allocator,
         host: []const u8,
         port: u16,
-        _: u32,
+        timeout_ms: u32,
         cancel: *const CancellationToken,
     ) !ServiceIdentity {
         if (cancel.isCancelled()) {
@@ -660,6 +686,26 @@ pub const RealServiceProber = struct {
             };
         }
 
+        // Standard OS infrastructure ports (RPC, NetBIOS, SMB)
+        if (port == 135 or port == 139 or port == 445) {
+            const s_name = switch (port) {
+                135 => "msrpc",
+                139 => "netbios-ssn",
+                445 => "microsoft-ds",
+                else => "infrastructure",
+            };
+            const s_dup = try allocator.dupe(u8, s_name);
+            const lim = try allocator.dupe(u8, "Standard OS infrastructure service identified by well-known registered port.");
+            return ServiceIdentity{
+                .service_name = s_dup,
+                .confidence = .high,
+                .version = null,
+                .banner = null,
+                .method = .default_port_hint,
+                .limitations = lim,
+            };
+        }
+
         // Standard cross-platform connection to retrieve non-destructive greeting banner or send HTTP HEAD
         const addr = std.net.Address.parseIp4(host, port) catch {
             return createUnrecognizedIdentity(allocator, "Could not parse IPv4 address for banner retrieval.");
@@ -670,17 +716,20 @@ pub const RealServiceProber = struct {
         };
         defer stream.close();
 
+        const wait_timeout = @max(100, @min(timeout_ms, 500));
         var read_buf: [1024]u8 = undefined;
 
         // If port 22, 25, 21, or 587, wait for initial server greeting banner
         if (port == 22 or port == 25 or port == 21 or port == 587) {
-            const bytes_read = stream.read(&read_buf) catch 0;
-            if (bytes_read > 0) {
-                const received = read_buf[0..bytes_read];
-                if (port == 22) {
-                    return parseSshBanner(allocator, received);
-                } else {
-                    return parseGreetingBanner(allocator, received, port);
+            if (hasDataReady(stream.handle, wait_timeout)) {
+                const bytes_read = stream.read(&read_buf) catch 0;
+                if (bytes_read > 0) {
+                    const received = read_buf[0..bytes_read];
+                    if (port == 22) {
+                        return parseSshBanner(allocator, received);
+                    } else {
+                        return parseGreetingBanner(allocator, received, port);
+                    }
                 }
             }
         }
@@ -689,11 +738,13 @@ pub const RealServiceProber = struct {
         const head_req = "HEAD / HTTP/1.1\r\nHost: 127.0.0.1\r\nUser-Agent: WireScope/1.0\r\nConnection: close\r\n\r\n";
         _ = stream.write(head_req) catch 0;
 
-        const http_bytes = stream.read(&read_buf) catch 0;
-        if (http_bytes > 0) {
-            const received = read_buf[0..http_bytes];
-            if (std.mem.startsWith(u8, received, "HTTP/")) {
-                return parseHttpHeadResponse(allocator, received);
+        if (hasDataReady(stream.handle, wait_timeout)) {
+            const http_bytes = stream.read(&read_buf) catch 0;
+            if (http_bytes > 0) {
+                const received = read_buf[0..http_bytes];
+                if (std.mem.startsWith(u8, received, "HTTP/")) {
+                    return parseHttpHeadResponse(allocator, received);
+                }
             }
         }
 

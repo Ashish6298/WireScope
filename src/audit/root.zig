@@ -15,6 +15,7 @@ pub const ParsedHttpResponse = http_audit.ParsedHttpResponse;
 pub const parseHttpResponse = http_audit.parseHttpResponse;
 pub const HttpAuditResult = http_audit.HttpAuditResult;
 pub const HttpAuditConnector = http_audit.HttpAuditConnector;
+pub const RealHttpAuditConnector = http_audit.RealHttpAuditConnector;
 pub const MockHttpAuditConnector = http_audit.MockHttpAuditConnector;
 pub const evaluateHttpSecurityRules = http_audit.evaluateHttpSecurityRules;
 pub const executeHttpAudit = http_audit.executeHttpAudit;

@@ -74,6 +74,7 @@ pub const ParsedUrl = https.ParsedUrl;
 pub const parseUrl = https.parseUrl;
 pub const isRedirectPermitted = https.isRedirectPermitted;
 pub const HttpsConnector = https.HttpsConnector;
+pub const RealHttpsConnector = https.RealHttpsConnector;
 pub const MockHttpsConnector = https.MockHttpsConnector;
 pub const executeHttpsProbe = https.executeHttpsProbe;
 pub const HttpsTroubleshooting = https_troubleshooting.HttpsTroubleshooting;

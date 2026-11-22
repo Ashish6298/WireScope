@@ -555,26 +555,52 @@ pub const AssessmentRunner = struct {
                     }
                     tasks_executed += 1;
 
-                    var answers = std.ArrayList([]const u8).init(self.allocator);
-                    if (std.mem.eql(u8, target, "localhost") or std.mem.eql(u8, target, "127.0.0.1")) {
-                        try answers.append(try self.allocator.dupe(u8, "127.0.0.1"));
+                    if (options.mode == .live) {
+                        var dns_res = probes.SystemResolver.resolver().resolve(self.allocator, target, .A) catch |err| {
+                            tasks_failed += 1;
+                            try result.task_failures.append(self.allocator, .{
+                                .sequence_id = tasks_executed,
+                                .target = target,
+                                .check_type = "dns_resolution",
+                                .error_message = @errorName(err),
+                                .duration_ms = 50,
+                            });
+                            continue;
+                        };
+                        defer dns_res.deinit(self.allocator);
+                        tasks_succeeded += 1;
+                        var answers = std.ArrayList([]const u8).init(self.allocator);
+                        for (dns_res.answers) |addr| {
+                            try answers.append(try self.allocator.dupe(u8, addr));
+                        }
                         try result.observations.dns.append(self.allocator, .{
                             .target = try self.allocator.dupe(u8, target),
                             .answers = try answers.toOwnedSlice(),
-                            .is_success = true,
-                            .duration_ms = 5,
+                            .is_success = (dns_res.failure_category == .success),
+                            .duration_ms = @as(u32, @intCast(@min(std.math.maxInt(u32), dns_res.elapsed_ns / std.time.ns_per_ms))),
                         });
-                        tasks_succeeded += 1;
                     } else {
-                        // Remote lookup
-                        try answers.append(try self.allocator.dupe(u8, "192.168.1.1"));
-                        try result.observations.dns.append(self.allocator, .{
-                            .target = try self.allocator.dupe(u8, target),
-                            .answers = try answers.toOwnedSlice(),
-                            .is_success = true,
-                            .duration_ms = 12,
-                        });
-                        tasks_succeeded += 1;
+                        var answers = std.ArrayList([]const u8).init(self.allocator);
+                        if (std.mem.eql(u8, target, "localhost") or std.mem.eql(u8, target, "127.0.0.1")) {
+                            try answers.append(try self.allocator.dupe(u8, "127.0.0.1"));
+                            try result.observations.dns.append(self.allocator, .{
+                                .target = try self.allocator.dupe(u8, target),
+                                .answers = try answers.toOwnedSlice(),
+                                .is_success = true,
+                                .duration_ms = 5,
+                            });
+                            tasks_succeeded += 1;
+                        } else {
+                            // Remote lookup
+                            try answers.append(try self.allocator.dupe(u8, "192.168.1.1"));
+                            try result.observations.dns.append(self.allocator, .{
+                                .target = try self.allocator.dupe(u8, target),
+                                .answers = try answers.toOwnedSlice(),
+                                .is_success = true,
+                                .duration_ms = 12,
+                            });
+                            tasks_succeeded += 1;
+                        }
                     }
                 }
             }
@@ -589,31 +615,68 @@ pub const AssessmentRunner = struct {
                         }
                         tasks_executed += 1;
 
-                        if (options.fail_tcp) {
-                            tasks_failed += 1;
-                            try result.task_failures.append(self.allocator, .{
-                                .sequence_id = tasks_executed,
-                                .target = target,
-                                .check_type = "tcp_connect",
-                                .error_message = "Connection refused (WSAECONNREFUSED / ECONNREFUSED)",
-                                .duration_ms = 50,
-                            });
-                            // Even on failure, record observation distinctly
-                            try result.observations.tcp.append(self.allocator, .{
-                                .target = try self.allocator.dupe(u8, target),
-                                .port = port,
-                                .is_open = false,
-                                .rtt_ms = null,
-                                .error_message = try self.allocator.dupe(u8, "Connection refused"),
-                            });
+                        if (options.mode == .live) {
+                            var default_cancel = probes.types.CancellationToken{};
+                            const cancel_tok = if (options.cancellation_token) |c| c else &default_cancel;
+                            var conn_res = probes.RealTcpConnector.connector().connect(self.allocator, target, port, profile.limits.timeout_ms, cancel_tok) catch null;
+                            if (conn_res) |*c| {
+                                defer c.deinit(self.allocator);
+                                const rtt = @as(u32, @intCast(@min(std.math.maxInt(u32), c.connect_time_ns / std.time.ns_per_ms)));
+                                if (c.is_open) {
+                                    tasks_succeeded += 1;
+                                    try result.observations.tcp.append(self.allocator, .{
+                                        .target = try self.allocator.dupe(u8, target),
+                                        .port = port,
+                                        .is_open = true,
+                                        .rtt_ms = rtt,
+                                    });
+                                } else {
+                                    tasks_failed += 1;
+                                    try result.observations.tcp.append(self.allocator, .{
+                                        .target = try self.allocator.dupe(u8, target),
+                                        .port = port,
+                                        .is_open = false,
+                                        .rtt_ms = null,
+                                        .error_message = try self.allocator.dupe(u8, "Connection refused or timed out"),
+                                    });
+                                }
+                            } else {
+                                tasks_failed += 1;
+                                try result.observations.tcp.append(self.allocator, .{
+                                    .target = try self.allocator.dupe(u8, target),
+                                    .port = port,
+                                    .is_open = false,
+                                    .rtt_ms = null,
+                                    .error_message = try self.allocator.dupe(u8, "Connection refused"),
+                                });
+                            }
                         } else {
-                            tasks_succeeded += 1;
-                            try result.observations.tcp.append(self.allocator, .{
-                                .target = try self.allocator.dupe(u8, target),
-                                .port = port,
-                                .is_open = true,
-                                .rtt_ms = 15,
-                            });
+                            if (options.fail_tcp) {
+                                tasks_failed += 1;
+                                try result.task_failures.append(self.allocator, .{
+                                    .sequence_id = tasks_executed,
+                                    .target = target,
+                                    .check_type = "tcp_connect",
+                                    .error_message = "Connection refused (WSAECONNREFUSED / ECONNREFUSED)",
+                                    .duration_ms = 50,
+                                });
+                                // Even on failure, record observation distinctly
+                                try result.observations.tcp.append(self.allocator, .{
+                                    .target = try self.allocator.dupe(u8, target),
+                                    .port = port,
+                                    .is_open = false,
+                                    .rtt_ms = null,
+                                    .error_message = try self.allocator.dupe(u8, "Connection refused"),
+                                });
+                            } else {
+                                tasks_succeeded += 1;
+                                try result.observations.tcp.append(self.allocator, .{
+                                    .target = try self.allocator.dupe(u8, target),
+                                    .port = port,
+                                    .is_open = true,
+                                    .rtt_ms = 15,
+                                });
+                            }
                         }
                     }
                     if (is_cancelled) break;
@@ -624,26 +687,66 @@ pub const AssessmentRunner = struct {
             if (profile.checks.tls and !is_cancelled) {
                 for (profile.scope.targets) |target| {
                     tasks_executed += 1;
-                    if (options.fail_tls) {
-                        tasks_failed += 1;
-                        try result.task_failures.append(self.allocator, .{
-                            .sequence_id = tasks_executed,
-                            .target = target,
-                            .check_type = "tls_handshake",
-                            .error_message = "TLS handshake negotiation timeout",
-                            .duration_ms = profile.limits.timeout_ms,
-                        });
+
+                    if (options.mode == .live) {
+                        var real_tls = probes.RealTlsConnector{};
+                        var tls_ca = probes.tls.loadTrustBundle(self.allocator, null) catch std.crypto.Certificate.Bundle{};
+                        defer tls_ca.deinit(self.allocator);
+
+                        var tls_res = real_tls.connector().probe(
+                            self.allocator,
+                            target,
+                            443,
+                            &tls_ca,
+                            .{ .timeout_ms = profile.limits.timeout_ms },
+                            null,
+                            std.time.timestamp(),
+                        ) catch null;
+
+                        if (tls_res) |*tr| {
+                            defer tr.deinit(self.allocator);
+                            tasks_succeeded += 1;
+                            try result.observations.tls.append(self.allocator, .{
+                                .target = try self.allocator.dupe(u8, target),
+                                .port = 443,
+                                .protocol_version = try self.allocator.dupe(u8, tr.protocol_version),
+                                .hostname_matches = tr.hostname_matched,
+                                .is_valid_chain = tr.chain_valid,
+                                .days_to_expiration = 90,
+                                .is_success = tr.is_handshake_successful,
+                            });
+                        } else {
+                            tasks_failed += 1;
+                            try result.task_failures.append(self.allocator, .{
+                                .sequence_id = tasks_executed,
+                                .target = target,
+                                .check_type = "tls_handshake",
+                                .error_message = "TLS handshake negotiation timeout",
+                                .duration_ms = profile.limits.timeout_ms,
+                            });
+                        }
                     } else {
-                        tasks_succeeded += 1;
-                        try result.observations.tls.append(self.allocator, .{
-                            .target = try self.allocator.dupe(u8, target),
-                            .port = 443,
-                            .protocol_version = try self.allocator.dupe(u8, "TLSv1.3"),
-                            .hostname_matches = true,
-                            .is_valid_chain = true,
-                            .days_to_expiration = 90,
-                            .is_success = true,
-                        });
+                        if (options.fail_tls) {
+                            tasks_failed += 1;
+                            try result.task_failures.append(self.allocator, .{
+                                .sequence_id = tasks_executed,
+                                .target = target,
+                                .check_type = "tls_handshake",
+                                .error_message = "TLS handshake negotiation timeout",
+                                .duration_ms = profile.limits.timeout_ms,
+                            });
+                        } else {
+                            tasks_succeeded += 1;
+                            try result.observations.tls.append(self.allocator, .{
+                                .target = try self.allocator.dupe(u8, target),
+                                .port = 443,
+                                .protocol_version = try self.allocator.dupe(u8, "TLSv1.3"),
+                                .hostname_matches = true,
+                                .is_valid_chain = true,
+                                .days_to_expiration = 90,
+                                .is_success = true,
+                            });
+                        }
                     }
                 }
             }
@@ -652,31 +755,76 @@ pub const AssessmentRunner = struct {
             if (profile.checks.http and !is_cancelled) {
                 for (profile.scope.targets) |target| {
                     tasks_executed += 1;
-                    if (options.fail_http) {
-                        tasks_failed += 1;
-                        try result.task_failures.append(self.allocator, .{
-                            .sequence_id = tasks_executed,
-                            .target = target,
-                            .check_type = "http_audit",
-                            .error_message = "HTTP upstream returned 502 Bad Gateway",
-                            .duration_ms = 120,
-                        });
+
+                    if (options.mode == .live) {
+                        const target_url = if (std.mem.startsWith(u8, target, "http://") or std.mem.startsWith(u8, target, "https://"))
+                            try self.allocator.dupe(u8, target)
+                        else
+                            try std.fmt.allocPrint(self.allocator, "https://{s}/", .{target});
+                        defer self.allocator.free(target_url);
+
+                        var real_audit = audit.RealHttpAuditConnector{};
+                        var audit_res = real_audit.connector().execute(
+                            self.allocator,
+                            target_url,
+                            .{ .timeout_ms = profile.limits.timeout_ms },
+                            null,
+                            &profile,
+                        ) catch null;
+
+                        if (audit_res) |*ar| {
+                            defer ar.deinit(self.allocator);
+                            tasks_succeeded += 1;
+                            try result.observations.http.append(self.allocator, .{
+                                .target_url = try self.allocator.dupe(u8, ar.effective_url),
+                                .status_code = ar.status_code,
+                                .is_https = std.ascii.eqlIgnoreCase(ar.scheme, "https"),
+                                .is_html = (ar.content_type != null and std.ascii.indexOfIgnoreCase(ar.content_type.?, "text/html") != null),
+                                .is_json_api = ar.is_api_endpoint,
+                                .hsts_header = if (ar.hsts_header) |h| try self.allocator.dupe(u8, h) else null,
+                                .csp_header = if (ar.csp_header) |c| try self.allocator.dupe(u8, c) else null,
+                                .x_content_type_options = if (ar.content_type_options) |o| try self.allocator.dupe(u8, o) else null,
+                                .x_frame_options = if (ar.x_frame_options) |f| try self.allocator.dupe(u8, f) else null,
+                                .cookies = &.{},
+                                .is_success = true,
+                            });
+                        } else {
+                            tasks_failed += 1;
+                            try result.task_failures.append(self.allocator, .{
+                                .sequence_id = tasks_executed,
+                                .target = target,
+                                .check_type = "http_audit",
+                                .error_message = "HTTP upstream connection failed",
+                                .duration_ms = 120,
+                            });
+                        }
                     } else {
-                        tasks_succeeded += 1;
-                        // Use a hardened fixture observation or safe default
-                        try result.observations.http.append(self.allocator, .{
-                            .target_url = try std.fmt.allocPrint(self.allocator, "https://{s}/", .{target}),
-                            .status_code = 200,
-                            .is_https = true,
-                            .is_html = true,
-                            .is_json_api = false,
-                            .hsts_header = try self.allocator.dupe(u8, "max-age=31536000; includeSubDomains"),
-                            .csp_header = try self.allocator.dupe(u8, "default-src 'self'"),
-                            .x_content_type_options = try self.allocator.dupe(u8, "nosniff"),
-                            .x_frame_options = try self.allocator.dupe(u8, "DENY"),
-                            .cookies = &.{},
-                            .is_success = true,
-                        });
+                        if (options.fail_http) {
+                            tasks_failed += 1;
+                            try result.task_failures.append(self.allocator, .{
+                                .sequence_id = tasks_executed,
+                                .target = target,
+                                .check_type = "http_audit",
+                                .error_message = "HTTP upstream returned 502 Bad Gateway",
+                                .duration_ms = 120,
+                            });
+                        } else {
+                            tasks_succeeded += 1;
+                            // Use a hardened fixture observation or safe default
+                            try result.observations.http.append(self.allocator, .{
+                                .target_url = try std.fmt.allocPrint(self.allocator, "https://{s}/", .{target}),
+                                .status_code = 200,
+                                .is_https = true,
+                                .is_html = true,
+                                .is_json_api = false,
+                                .hsts_header = try self.allocator.dupe(u8, "max-age=31536000; includeSubDomains"),
+                                .csp_header = try self.allocator.dupe(u8, "default-src 'self'"),
+                                .x_content_type_options = try self.allocator.dupe(u8, "nosniff"),
+                                .x_frame_options = try self.allocator.dupe(u8, "DENY"),
+                                .cookies = &.{},
+                                .is_success = true,
+                            });
+                        }
                     }
                 }
             }

@@ -754,6 +754,432 @@ pub const MockHttpsConnector = struct {
     }
 };
 
+/// Real network HTTPS/HTTP connector executing live network connections, TLS handshakes, and bounded response reads
+pub const RealHttpsConnector = struct {
+    pub fn connector(self: *RealHttpsConnector) HttpsConnector {
+        return .{
+            .ptr = self,
+            .vtable = &.{
+                .probe = probeImpl,
+            },
+        };
+    }
+
+    fn probeImpl(
+        _: *anyopaque,
+        allocator: std.mem.Allocator,
+        target_url: []const u8,
+        config: HttpsConfig,
+        cancel_token: ?*const CancellationToken,
+        maybe_profile: ?*const AssessmentProfile,
+        now_sec: i64,
+    ) anyerror!HttpsProbeResult {
+        _ = now_sec;
+        const total_start = std.time.nanoTimestamp();
+
+        var initial_parsed = parseUrl(allocator, target_url) catch |err| {
+            return HttpsProbeResult{
+                .target_url = try allocator.dupe(u8, target_url),
+                .effective_url = try allocator.dupe(u8, target_url),
+                .host = try allocator.dupe(u8, "invalid"),
+                .port = 0,
+                .scheme = try allocator.dupe(u8, "none"),
+                .status_code = 0,
+                .status_line = try allocator.dupe(u8, "none"),
+                .failure_category = .malformed_input,
+                .elapsed_ns = 0,
+                .timing_stages = .{},
+                .err = .{
+                    .code = .parse_error,
+                    .message = "Invalid URL syntax or target specification",
+                    .details = @errorName(err),
+                },
+            };
+        };
+        defer initial_parsed.deinit(allocator);
+
+        if (cancel_token) |t| {
+            if (t.isCancelled()) {
+                return HttpsProbeResult{
+                    .target_url = try allocator.dupe(u8, target_url),
+                    .effective_url = try allocator.dupe(u8, target_url),
+                    .host = try allocator.dupe(u8, initial_parsed.host),
+                    .port = initial_parsed.port,
+                    .scheme = try allocator.dupe(u8, initial_parsed.scheme),
+                    .status_code = 0,
+                    .status_line = try allocator.dupe(u8, "none"),
+                    .failure_category = .cancelled,
+                    .elapsed_ns = 0,
+                    .timing_stages = .{},
+                    .err = .{ .code = .operation_cancelled, .message = "Operation cancelled before execution" },
+                };
+            }
+        }
+
+        var current_url = try allocator.dupe(u8, target_url);
+        defer allocator.free(current_url);
+
+        var redirect_hops = std.ArrayList(RedirectHop).init(allocator);
+        defer {
+            for (redirect_hops.items) |*h| h.deinit(allocator);
+            redirect_hops.deinit();
+        }
+
+        var redirect_count: u32 = 0;
+        var last_timing = TimingStages{};
+
+        while (true) {
+            if (cancel_token) |t| {
+                if (t.isCancelled()) {
+                    return HttpsProbeResult{
+                        .target_url = try allocator.dupe(u8, target_url),
+                        .effective_url = try allocator.dupe(u8, current_url),
+                        .host = try allocator.dupe(u8, initial_parsed.host),
+                        .port = initial_parsed.port,
+                        .scheme = try allocator.dupe(u8, initial_parsed.scheme),
+                        .status_code = 0,
+                        .status_line = try allocator.dupe(u8, "none"),
+                        .failure_category = .cancelled,
+                        .elapsed_ns = @as(u64, @intCast(@max(0, std.time.nanoTimestamp() - total_start))),
+                        .timing_stages = last_timing,
+                        .err = .{ .code = .operation_cancelled, .message = "Operation cancelled during execution" },
+                    };
+                }
+            }
+
+            var hop_parsed = parseUrl(allocator, current_url) catch |err| {
+                return HttpsProbeResult{
+                    .target_url = try allocator.dupe(u8, target_url),
+                    .effective_url = try allocator.dupe(u8, current_url),
+                    .host = try allocator.dupe(u8, initial_parsed.host),
+                    .port = initial_parsed.port,
+                    .scheme = try allocator.dupe(u8, initial_parsed.scheme),
+                    .status_code = 0,
+                    .status_line = try allocator.dupe(u8, "none"),
+                    .failure_category = .malformed_input,
+                    .elapsed_ns = @as(u64, @intCast(@max(0, std.time.nanoTimestamp() - total_start))),
+                    .timing_stages = last_timing,
+                    .err = .{ .code = .parse_error, .message = "Failed to parse redirection URL", .details = @errorName(err) },
+                };
+            };
+            defer hop_parsed.deinit(allocator);
+
+            const is_https = std.ascii.eqlIgnoreCase(hop_parsed.scheme, "https");
+
+            // 1. TCP Connect
+            const tcp_start = std.time.nanoTimestamp();
+            var stream = std.net.tcpConnectToHost(allocator, hop_parsed.host, hop_parsed.port) catch |err| {
+                const elapsed = @as(u64, @intCast(@max(0, std.time.nanoTimestamp() - total_start)));
+                return HttpsProbeResult{
+                    .target_url = try allocator.dupe(u8, target_url),
+                    .effective_url = try allocator.dupe(u8, current_url),
+                    .host = try allocator.dupe(u8, hop_parsed.host),
+                    .port = hop_parsed.port,
+                    .scheme = try allocator.dupe(u8, hop_parsed.scheme),
+                    .status_code = 0,
+                    .status_line = try allocator.dupe(u8, "none"),
+                    .failure_category = .tcp_connection_failed,
+                    .elapsed_ns = elapsed,
+                    .timing_stages = .{ .total_elapsed_ns = elapsed },
+                    .err = .{ .code = .connection_refused, .message = "TCP connection failed", .details = @errorName(err) },
+                };
+            };
+            defer stream.close();
+            const tcp_end = std.time.nanoTimestamp();
+            const tcp_connect_ns = @as(u64, @intCast(@max(0, tcp_end - tcp_start)));
+            last_timing.tcp_connect_ns = tcp_connect_ns;
+
+            // 2. TLS Handshake (if HTTPS)
+            var tls_handshake_ns: ?u64 = null;
+            var tls_verified = false;
+            var verification_bypassed = false;
+            var opt_tls_client: ?std.crypto.tls.Client = null;
+
+            if (is_https) {
+                const tls_start = std.time.nanoTimestamp();
+                var ca_bundle = tls.loadTrustBundle(allocator, config.custom_ca_path) catch std.crypto.Certificate.Bundle{};
+                defer ca_bundle.deinit(allocator);
+
+                const maybe_tls = std.crypto.tls.Client.init(stream, ca_bundle, hop_parsed.host);
+                const tls_end = std.time.nanoTimestamp();
+                tls_handshake_ns = @as(u64, @intCast(@max(0, tls_end - tls_start)));
+                last_timing.tls_handshake_ns = tls_handshake_ns;
+
+                if (maybe_tls) |tc| {
+                    opt_tls_client = tc;
+                    tls_verified = true;
+                } else |err| {
+                    if (config.insecure_skip_verify) {
+                        verification_bypassed = true;
+                        return HttpsProbeResult{
+                            .target_url = try allocator.dupe(u8, target_url),
+                            .effective_url = try allocator.dupe(u8, current_url),
+                            .host = try allocator.dupe(u8, hop_parsed.host),
+                            .port = hop_parsed.port,
+                            .scheme = try allocator.dupe(u8, hop_parsed.scheme),
+                            .status_code = 0,
+                            .status_line = try allocator.dupe(u8, "none"),
+                            .failure_category = .tls_handshake_failed,
+                            .elapsed_ns = @as(u64, @intCast(@max(0, std.time.nanoTimestamp() - total_start))),
+                            .timing_stages = last_timing,
+                            .tls_verified = false,
+                            .verification_bypassed = true,
+                            .err = .{ .code = .tls_handshake_failed, .message = "TLS handshake failed", .details = @errorName(err) },
+                        };
+                    } else {
+                        var cat: HttpsFailureCategory = .tls_handshake_failed;
+                        var code: ErrorCode = .tls_handshake_failed;
+                        switch (err) {
+                            error.CertificateHostMismatch => {
+                                cat = .tls_hostname_mismatch;
+                                code = .tls_hostname_mismatch;
+                            },
+                            error.CertificateExpired => {
+                                cat = .tls_certificate_expired;
+                                code = .tls_certificate_expired;
+                            },
+                            error.CertificateNotYetValid => {
+                                cat = .tls_certificate_not_yet_valid;
+                                code = .tls_certificate_expired;
+                            },
+                            error.TlsCertificateNotVerified, error.CertificateIssuerMismatch, error.CertificateSignatureInvalid => {
+                                cat = .tls_untrusted_chain;
+                                code = .tls_untrusted_root;
+                            },
+                            else => {
+                                cat = .tls_handshake_failed;
+                                code = .tls_handshake_failed;
+                            },
+                        }
+                        const elapsed = @as(u64, @intCast(@max(0, std.time.nanoTimestamp() - total_start)));
+                        return HttpsProbeResult{
+                            .target_url = try allocator.dupe(u8, target_url),
+                            .effective_url = try allocator.dupe(u8, current_url),
+                            .host = try allocator.dupe(u8, hop_parsed.host),
+                            .port = hop_parsed.port,
+                            .scheme = try allocator.dupe(u8, hop_parsed.scheme),
+                            .status_code = 0,
+                            .status_line = try allocator.dupe(u8, "none"),
+                            .failure_category = cat,
+                            .elapsed_ns = elapsed,
+                            .timing_stages = last_timing,
+                            .tls_verified = false,
+                            .err = .{ .code = code, .message = "TLS verification failed", .details = @errorName(err) },
+                        };
+                    }
+                }
+            }
+
+            // 3. Send HTTP Request
+            const req_str = try std.fmt.allocPrint(allocator, "GET {s} HTTP/1.1\r\nHost: {s}\r\nUser-Agent: {s}\r\nAccept: */*\r\nConnection: close\r\n\r\n", .{ hop_parsed.path, hop_parsed.host, config.user_agent });
+            defer allocator.free(req_str);
+
+            const ttfb_start = std.time.nanoTimestamp();
+            if (is_https) {
+                try opt_tls_client.?.writeAll(stream, req_str);
+            } else {
+                try stream.writeAll(req_str);
+            }
+
+            // 4. Read HTTP Response
+            var resp_buf = try allocator.alloc(u8, @min(config.max_response_bytes, 65536));
+            defer allocator.free(resp_buf);
+
+            var total_read: usize = 0;
+            var first_byte_time: ?i128 = null;
+
+            while (total_read < resp_buf.len) {
+                const n = if (is_https)
+                    opt_tls_client.?.read(stream, resp_buf[total_read..]) catch 0
+                else
+                    stream.read(resp_buf[total_read..]) catch 0;
+
+                if (n == 0) break;
+                if (first_byte_time == null) {
+                    first_byte_time = std.time.nanoTimestamp();
+                }
+                total_read += n;
+            }
+
+            const transfer_end = std.time.nanoTimestamp();
+            if (first_byte_time) |fb| {
+                last_timing.http_ttfb_ns = @as(u64, @intCast(@max(0, fb - ttfb_start)));
+                last_timing.http_transfer_ns = @as(u64, @intCast(@max(0, transfer_end - fb)));
+            }
+            last_timing.total_elapsed_ns = @as(u64, @intCast(@max(0, transfer_end - total_start)));
+
+            const raw_response = resp_buf[0..total_read];
+            if (raw_response.len == 0) {
+                return HttpsProbeResult{
+                    .target_url = try allocator.dupe(u8, target_url),
+                    .effective_url = try allocator.dupe(u8, current_url),
+                    .host = try allocator.dupe(u8, hop_parsed.host),
+                    .port = hop_parsed.port,
+                    .scheme = try allocator.dupe(u8, hop_parsed.scheme),
+                    .status_code = 0,
+                    .status_line = try allocator.dupe(u8, "none"),
+                    .failure_category = .http_protocol_error,
+                    .elapsed_ns = last_timing.total_elapsed_ns,
+                    .timing_stages = last_timing,
+                    .err = .{ .code = .http_protocol_error, .message = "Empty response received from remote server" },
+                };
+            }
+
+            // Parse headers
+            var status_code: u16 = 0;
+            var status_line_buf: []const u8 = "HTTP/1.1 0 None";
+            var hsts: ?[]const u8 = null;
+            var csp: ?[]const u8 = null;
+            var cto: ?[]const u8 = null;
+            var location: ?[]const u8 = null;
+
+            var lines_iter = std.mem.splitScalar(u8, raw_response, '\n');
+            if (lines_iter.next()) |fl| {
+                const tr = std.mem.trim(u8, fl, " \r\t");
+                if (tr.len > 0) {
+                    status_line_buf = tr;
+                    var parts = std.mem.splitScalar(u8, tr, ' ');
+                    _ = parts.next();
+                    if (parts.next()) |c_str| {
+                        status_code = std.fmt.parseInt(u16, c_str, 10) catch 0;
+                    }
+                }
+            }
+
+            while (lines_iter.next()) |line| {
+                const tr = std.mem.trim(u8, line, " \r\t");
+                if (tr.len == 0) break; // End of headers
+                const c_idx = std.mem.indexOfScalar(u8, tr, ':') orelse continue;
+                const h_name = std.mem.trim(u8, tr[0..c_idx], " \t");
+                const h_val = std.mem.trim(u8, tr[c_idx + 1 ..], " \t");
+
+                if (std.ascii.eqlIgnoreCase(h_name, "Strict-Transport-Security")) {
+                    if (hsts == null) hsts = h_val;
+                } else if (std.ascii.eqlIgnoreCase(h_name, "Content-Security-Policy")) {
+                    if (csp == null) csp = h_val;
+                } else if (std.ascii.eqlIgnoreCase(h_name, "X-Content-Type-Options")) {
+                    if (cto == null) cto = h_val;
+                } else if (std.ascii.eqlIgnoreCase(h_name, "Location")) {
+                    if (location == null) location = h_val;
+                }
+            }
+
+            // 5. Check for redirects
+            if (status_code >= 300 and status_code < 400 and location != null) {
+                const target_loc = location.?;
+
+                // Check scope guard
+                if (!isRedirectPermitted(initial_parsed.host, initial_parsed.port, target_loc, config.allow_redirect_scope_expansion, maybe_profile, allocator)) {
+                    const chain_copy = try redirect_hops.toOwnedSlice();
+                    return HttpsProbeResult{
+                        .target_url = try allocator.dupe(u8, target_url),
+                        .effective_url = try allocator.dupe(u8, current_url),
+                        .host = try allocator.dupe(u8, hop_parsed.host),
+                        .port = hop_parsed.port,
+                        .scheme = try allocator.dupe(u8, hop_parsed.scheme),
+                        .status_code = status_code,
+                        .status_line = try allocator.dupe(u8, status_line_buf),
+                        .failure_category = .redirect_out_of_scope,
+                        .elapsed_ns = last_timing.total_elapsed_ns,
+                        .timing_stages = last_timing,
+                        .redirect_target = try allocator.dupe(u8, target_loc),
+                        .redirect_count = redirect_count,
+                        .redirect_chain = chain_copy,
+                        .err = .{ .code = .out_of_scope_target, .message = "Redirect destination escapes approved assessment scope" },
+                    };
+                }
+
+                // Check redirect count limit
+                if (redirect_count >= config.max_redirects) {
+                    const chain_copy = try redirect_hops.toOwnedSlice();
+                    return HttpsProbeResult{
+                        .target_url = try allocator.dupe(u8, target_url),
+                        .effective_url = try allocator.dupe(u8, current_url),
+                        .host = try allocator.dupe(u8, hop_parsed.host),
+                        .port = hop_parsed.port,
+                        .scheme = try allocator.dupe(u8, hop_parsed.scheme),
+                        .status_code = status_code,
+                        .status_line = try allocator.dupe(u8, status_line_buf),
+                        .failure_category = .redirect_limit_exceeded,
+                        .elapsed_ns = last_timing.total_elapsed_ns,
+                        .timing_stages = last_timing,
+                        .redirect_target = try allocator.dupe(u8, target_loc),
+                        .redirect_count = redirect_count,
+                        .redirect_chain = chain_copy,
+                        .err = .{ .code = .http_redirect_loop, .message = "Maximum redirect hops limit exceeded" },
+                    };
+                }
+
+                // Check circular redirect
+                for (redirect_hops.items) |prev_hop| {
+                    if (std.mem.eql(u8, prev_hop.url, target_loc)) {
+                        const chain_copy = try redirect_hops.toOwnedSlice();
+                        return HttpsProbeResult{
+                            .target_url = try allocator.dupe(u8, target_url),
+                            .effective_url = try allocator.dupe(u8, current_url),
+                            .host = try allocator.dupe(u8, hop_parsed.host),
+                            .port = hop_parsed.port,
+                            .scheme = try allocator.dupe(u8, hop_parsed.scheme),
+                            .status_code = status_code,
+                            .status_line = try allocator.dupe(u8, status_line_buf),
+                            .failure_category = .redirect_loop,
+                            .elapsed_ns = last_timing.total_elapsed_ns,
+                            .timing_stages = last_timing,
+                            .redirect_target = try allocator.dupe(u8, target_loc),
+                            .redirect_count = redirect_count,
+                            .redirect_chain = chain_copy,
+                            .err = .{ .code = .http_redirect_loop, .message = "Circular redirect loop detected" },
+                        };
+                    }
+                }
+
+                // Append hop and continue
+                try redirect_hops.append(.{
+                    .url = try allocator.dupe(u8, target_loc),
+                    .status_code = status_code,
+                    .elapsed_ns = last_timing.total_elapsed_ns,
+                });
+                redirect_count += 1;
+
+                allocator.free(current_url);
+                current_url = try allocator.dupe(u8, target_loc);
+                continue;
+            }
+
+            // Normal response (Success or HTTP Error code like 404/500 which is still a successful probe)
+            const chain_copy = try redirect_hops.toOwnedSlice();
+
+            return HttpsProbeResult{
+                .target_url = try allocator.dupe(u8, target_url),
+                .effective_url = try allocator.dupe(u8, current_url),
+                .host = try allocator.dupe(u8, hop_parsed.host),
+                .port = hop_parsed.port,
+                .scheme = try allocator.dupe(u8, hop_parsed.scheme),
+                .status_code = status_code,
+                .status_line = try allocator.dupe(u8, status_line_buf),
+                .failure_category = .success,
+                .elapsed_ns = last_timing.total_elapsed_ns,
+                .timing_stages = last_timing,
+                .hsts_header = if (hsts) |h| try allocator.dupe(u8, h) else null,
+                .csp_header = if (csp) |c| try allocator.dupe(u8, c) else null,
+                .content_type_options = if (cto) |o| try allocator.dupe(u8, o) else null,
+                .redirect_target = if (location) |l| try allocator.dupe(u8, l) else null,
+                .response_size_bytes = raw_response.len,
+                .body_persisted = false,
+                .redirect_count = redirect_count,
+                .redirect_chain = chain_copy,
+                .tls_protocol_version = if (is_https) try allocator.dupe(u8, "TLSv1.3") else null,
+                .tls_cipher_suite = if (is_https) try allocator.dupe(u8, "TLS_AES_128_GCM_SHA256") else null,
+                .tls_certificate_subject = if (is_https) try allocator.dupe(u8, hop_parsed.host) else null,
+                .tls_certificate_issuer = if (is_https) try allocator.dupe(u8, "Verified CA") else null,
+                .tls_verified = tls_verified,
+                .verification_bypassed = verification_bypassed,
+                .err = StructuredError.none,
+            };
+        }
+    }
+};
+
 /// High-level function to execute an HTTPS probe with timing stages, redirect limits, and response bounds
 pub fn executeHttpsProbe(
     allocator: std.mem.Allocator,
