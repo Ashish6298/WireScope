@@ -30,7 +30,7 @@ jobs:
             target: x86_64-linux
             bin_name: wirescope
             archive_ext: tar.gz
-          - os: macos-14
+          - os: macos-latest
             target: aarch64-macos
             bin_name: wirescope
             archive_ext: tar.gz
